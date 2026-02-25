@@ -224,8 +224,9 @@ def run_daemon(
 
     signal.signal(signal.SIGUSR1, handle_usr1)
 
+    # verify credentials exist at startup
     log.info("resolving Claude OAuth token")
-    token = get_token(explicit_token=token_override)
+    get_token(explicit_token=token_override)
     log.info("authenticated")
 
     if not dry_run:
@@ -238,7 +239,9 @@ def run_daemon(
 
     try:
         while handler.running:
+            # re-read token each poll so we pick up Keychain refreshes
             try:
+                token = get_token(explicit_token=token_override)
                 usage = fetch_usage(token)
             except RuntimeError as error:
                 log.warning(

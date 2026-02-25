@@ -1,6 +1,13 @@
 # brightness-monitor configuration
 # all durations are in seconds unless noted otherwise
 
+# which usage window to track for brightness and readout
+# "five_hour" = the 5-hour sliding window (resets frequently, gates immediate usage)
+# "seven_day" = weekly aggregate
+# "seven_day_sonnet" = weekly sonnet-only
+# "most_constrained" = whichever has the highest utilization
+window: "five_hour"
+
 # how often to poll the Claude usage API
 poll_interval: 60
 
@@ -12,7 +19,7 @@ min_brightness: 0.0
 # -1 = system default (smooth fade)
 #  0 = instant snap (no transition)
 #  higher = slower fades
-fade_speed: 0
+fade_speed: 3
 
 # -- pulse mode (breathing animation when running low) --
 
@@ -46,7 +53,7 @@ readout:
   granularity: "ones"
 
   # how long each blink stays fully lit (seconds)
-  blink_on: 0.12
+  blink_on: 0.20
 
   # gap between blinks (seconds)
   blink_off: 0.12
@@ -57,7 +64,7 @@ readout:
   fade_speed: 2
 
   # pause between tens digit and units digit (seconds)
-  digit_pause: 0.5
+  digit_pause: 1
 
   # pause after the full readout before resuming normal brightness
-  end_pause: 1.0
+  end_pause: 2

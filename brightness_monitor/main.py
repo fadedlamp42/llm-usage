@@ -251,8 +251,21 @@ def run_daemon(
                 handler.interruptible_sleep(config.poll_interval)
                 continue
 
-            constrained = usage.most_constrained
-            remaining = 100.0 - constrained.utilization
+            if config.window == "most_constrained":
+                tracked = usage.most_constrained
+            else:
+                matched = [w for w in usage.windows if w.name == config.window]
+                if not matched:
+                    log.warning(
+                        "window %(w)s not found in API response, "
+                        "falling back to most constrained",
+                        {"w": config.window},
+                    )
+                    tracked = usage.most_constrained
+                else:
+                    tracked = matched[0]
+
+            remaining = 100.0 - tracked.utilization
 
             log.info(format_status(usage))
 
@@ -295,7 +308,7 @@ def run_daemon(
                     "pulse mode on %(window)s: %(remaining).1f%% left, "
                     "breathing 0-%(max).3f",
                     {
-                        "window": constrained.name,
+                        "window": tracked.name,
                         "remaining": remaining,
                         "max": pulse_max,
                     },
@@ -313,14 +326,14 @@ def run_daemon(
 
             else:
                 brightness = utilization_to_brightness(
-                    constrained.utilization,
+                    tracked.utilization,
                     config.min_brightness,
                 )
                 log.info(
                     "steady: %(window)s %(util).1f%% used -> brightness %(b).3f",
                     {
-                        "window": constrained.name,
-                        "util": constrained.utilization,
+                        "window": tracked.name,
+                        "util": tracked.utilization,
                         "b": brightness,
                     },
                 )
@@ -376,9 +389,10 @@ def main():
     config = load_config(config_path)
 
     log.info(
-        "config: poll=%(poll)ds, fade=%(fade)d, pulse<%(pulse).0f%%, "
-        "readout every %(every).0f%% below %(thresh).0f%%",
+        "config: window=%(window)s, poll=%(poll)ds, fade=%(fade)d, "
+        "pulse<%(pulse).0f%%, readout every %(every).0f%% below %(thresh).0f%%",
         {
+            "window": config.window,
             "poll": config.poll_interval,
             "fade": config.fade_speed,
             "pulse": config.pulse_threshold,

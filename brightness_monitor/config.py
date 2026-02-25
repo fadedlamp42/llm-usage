@@ -33,6 +33,7 @@ class ReadoutConfig:
 
 @dataclass
 class Config:
+    window: str = "five_hour"
     poll_interval: int = 60
     min_brightness: float = 0.0
     fade_speed: int = 0

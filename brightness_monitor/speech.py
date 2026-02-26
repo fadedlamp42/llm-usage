@@ -114,7 +114,7 @@ def speak_hourly_status(usage: UsageData, burn_rate: BurnRate) -> None:
     hr_left = int(100 - five_hour.utilization)
     reset = _format_relative_time(five_hour.resets_at)
 
-    parts = ["usage, %d percent remaining" % hr_left]
+    parts = ["%d percent remaining" % hr_left]
     if reset:
         parts.append("resets %s" % reset)
 
@@ -134,17 +134,13 @@ def speak_full_status(usage: UsageData) -> None:
     covers hourly, weekly, per-model breakdown, and reset times.
     uses kokoro mode for speed control.
     """
-    text = "full report. " + format_voice_status(usage)
+    text = format_voice_status(usage)
     log.info("voice readout: %(text)s", {"text": text})
     _speak_kokoro(text)
 
 
 def _speak_kokoro(text: str) -> None:
-    """shared helper: fire-and-forget kokoro speech at 1.4x speed.
-
-    callers are responsible for starting text with a natural lead-in
-    word to work around kokoro clipping the first syllable.
-    """
+    """shared helper: fire-and-forget kokoro speech at 1.4x speed."""
     try:
         subprocess.Popen(
             ["cute-say", "-k", "-s", "1.4", text],

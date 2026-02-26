@@ -205,6 +205,8 @@ def run_daemon(
         log.info("took control of keyboard brightness")
 
     last_bucket: Optional[int] = None
+    last_fetch_time: float = 0.0
+    cached_usage: Optional[UsageData] = None
     auth_expired = False
 
     try:
@@ -229,22 +231,46 @@ def run_daemon(
                     handler.interruptible_sleep(config.poll_interval)
                     continue
 
-            # re-read token each poll so we pick up Keychain refreshes
-            try:
-                token = get_token(explicit_token=token_override)
-                usage = fetch_usage(token)
-            except AuthExpiredError:
-                log.warning("auth token expired")
-                if not auth_expired and config.output.speech:
-                    announce_auth_expired()
-                auth_expired = True
-                handler.interruptible_sleep(config.poll_interval)
-                continue
-            except RuntimeError as error:
-                log.warning(
-                    "usage fetch failed, skipping: %(error)s",
-                    {"error": error},
+            # debounce API requests — reuse cached data if polled recently.
+            # prevents spamming the usage API when pressing the hotkey
+            # multiple times to re-listen to a readout.
+            seconds_since_fetch = time.monotonic() - last_fetch_time
+            if cached_usage is not None and seconds_since_fetch < config.poll_interval:
+                log.debug(
+                    "using cached usage data (%(age).0fs old)",
+                    {"age": seconds_since_fetch},
                 )
+                usage = cached_usage
+            else:
+                try:
+                    token = get_token(explicit_token=token_override)
+                    usage = fetch_usage(token)
+                except AuthExpiredError:
+                    log.warning("auth token expired")
+                    if not auth_expired and config.output.speech:
+                        announce_auth_expired()
+                    auth_expired = True
+                    handler.interruptible_sleep(config.poll_interval)
+                    continue
+                except RuntimeError as error:
+                    log.warning(
+                        "usage fetch failed, skipping: %(error)s",
+                        {"error": error},
+                    )
+                    handler.interruptible_sleep(config.poll_interval)
+                    continue
+
+                last_fetch_time = time.monotonic()
+                cached_usage = usage
+
+                # only record fresh polls to sqlite, not cached replays
+                try:
+                    record_poll(db, usage)
+                except Exception as error:
+                    log.warning(
+                        "failed to record poll to database: %(error)s",
+                        {"error": error},
+                    )
                 handler.interruptible_sleep(config.poll_interval)
                 continue
 

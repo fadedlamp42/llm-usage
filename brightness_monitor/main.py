@@ -12,8 +12,10 @@ import argparse
 import logging
 import math
 import signal
+import subprocess
 import threading
 import time
+from datetime import datetime
 from typing import Optional
 
 from brightness_monitor.brightness import (
@@ -194,6 +196,105 @@ def format_status(usage: UsageData) -> str:
     return " | ".join(parts)
 
 
+def _format_relative_time(target: Optional[datetime]) -> str:
+    """format a datetime as natural spoken relative time.
+
+    returns phrases like "in about an hour", "in 3 days", "tomorrow".
+    returns empty string if target is None.
+    """
+    if target is None:
+        return ""
+
+    now = datetime.now(tz=target.tzinfo)
+    total_seconds = (target - now).total_seconds()
+
+    if total_seconds <= 0:
+        return "any moment now"
+
+    minutes = total_seconds / 60
+    hours = total_seconds / 3600
+    days = total_seconds / 86400
+
+    if minutes < 2:
+        return "in about a minute"
+    if hours < 1:
+        return "in %d minutes" % int(minutes)
+    if hours < 2:
+        return "in about an hour"
+    if hours < 24:
+        return "in %d hours" % int(hours)
+    if days < 2:
+        return "tomorrow"
+
+    return "in %d days" % int(days)
+
+
+def format_voice_status(usage: UsageData) -> str:
+    """format a thorough spoken status update for cute-say.
+
+    includes: hourly remaining (for verifying blink readouts), weekly remaining,
+    per-model breakdown (opus/sonnet), and reset times for all windows.
+    plain delivery, no paralinguistic tags.
+    """
+    windows_by_name = {w.name: w for w in usage.windows}
+
+    five_hour = windows_by_name.get("five_hour")
+    seven_day = windows_by_name.get("seven_day")
+    opus = windows_by_name.get("seven_day_opus")
+    sonnet = windows_by_name.get("seven_day_sonnet")
+
+    parts = []
+
+    # hourly first — this is what the keyboard blinks show, so state it
+    # clearly so the user can verify what they just saw
+    if five_hour:
+        hr_left = int(100 - five_hour.utilization)
+        reset = _format_relative_time(five_hour.resets_at)
+        fragment = "hourly has %d percent left" % hr_left
+        if reset:
+            fragment += ", resets %s" % reset
+        parts.append(fragment)
+
+    # weekly aggregate
+    if seven_day:
+        wk_left = int(100 - seven_day.utilization)
+        reset = _format_relative_time(seven_day.resets_at)
+        fragment = "weekly has %d percent left" % wk_left
+        if reset:
+            fragment += ", resets %s" % reset
+        parts.append(fragment)
+
+    # per-model breakdown when available
+    model_bits = []
+    if opus:
+        model_bits.append("opus at %d" % int(100 - opus.utilization))
+    if sonnet:
+        model_bits.append("sonnet at %d" % int(100 - sonnet.utilization))
+    if model_bits:
+        parts.append(", ".join(model_bits))
+
+    return ". ".join(parts)
+
+
+def speak_status(usage: UsageData) -> None:
+    """fire-and-forget: format a voice status and send it to cute-say.
+
+    runs cute-say as a detached subprocess so the daemon loop isn't blocked
+    by TTS latency.
+    """
+    text = format_voice_status(usage)
+    log.info("voice readout: %(text)s", {"text": text})
+
+    try:
+        subprocess.Popen(
+            ["cute-say", "-k", "-s", "1.4", text],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except FileNotFoundError:
+        log.warning("cute-say not found in PATH, skipping voice readout")
+
+
 def _readout_bucket(remaining: float, every_percent: float) -> int:
     """which threshold bucket does this remaining % fall into?
 
@@ -213,7 +314,7 @@ def run_daemon(
     signal.signal(signal.SIGINT, handler.handle_signal)
     signal.signal(signal.SIGTERM, handler.handle_signal)
 
-    # SIGUSR1 triggers an immediate readout (for skhd hotkey)
+    # SIGUSR1 triggers an immediate blink readout (cmd+shift+b)
     readout_requested = False
 
     def handle_usr1(signum, frame):
@@ -223,6 +324,17 @@ def run_daemon(
         handler.wake()
 
     signal.signal(signal.SIGUSR1, handle_usr1)
+
+    # SIGUSR2 triggers a spoken voice readout via cute-say (cmd+shift+alt+b)
+    voice_readout_requested = False
+
+    def handle_usr2(signum, frame):
+        nonlocal voice_readout_requested
+        log.info("SIGUSR2 received, voice readout requested")
+        voice_readout_requested = True
+        handler.wake()
+
+    signal.signal(signal.SIGUSR2, handle_usr2)
 
     # verify credentials exist at startup
     log.info("resolving Claude OAuth token")
@@ -298,6 +410,11 @@ def run_daemon(
                     )
                 else:
                     blink_percentage_readout(remaining, config, handler)
+
+            # voice readout via cute-say (independent of blink readout)
+            if voice_readout_requested:
+                voice_readout_requested = False
+                speak_status(usage)
 
             last_bucket = current_bucket
 

@@ -263,7 +263,7 @@ def run_daemon(
                 last_fetch_time = time.monotonic()
                 cached_usage = usage
 
-                # only record fresh polls to sqlite, not cached replays
+                # record fresh polls to sqlite for usage history
                 try:
                     record_poll(db, usage)
                 except Exception as error:
@@ -271,17 +271,6 @@ def run_daemon(
                         "failed to record poll to database: %(error)s",
                         {"error": error},
                     )
-                handler.interruptible_sleep(config.poll_interval)
-                continue
-
-            # record every poll to sqlite for usage history
-            try:
-                record_poll(db, usage)
-            except Exception as error:
-                log.warning(
-                    "failed to record poll to database: %(error)s",
-                    {"error": error},
-                )
 
             if config.window == "most_constrained":
                 tracked = usage.most_constrained

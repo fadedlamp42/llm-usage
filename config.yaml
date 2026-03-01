@@ -11,6 +11,13 @@ window: "five_hour"
 # how often to poll the Claude usage API
 poll_interval: 60
 
+# sttts inter-service coordination
+# speech announcements are delayed while sttts mic capture is active,
+# polled via GET /mic-status on the relay
+sttts:
+  enabled: true
+  # relay_url: "http://127.0.0.1:8393"  # default; override for remote hosts
+
 # -- output surfaces --
 output:
 

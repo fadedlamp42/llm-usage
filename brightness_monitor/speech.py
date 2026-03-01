@@ -8,16 +8,88 @@ three modes:
 
 from __future__ import annotations
 
+import json
 import logging
 import subprocess
+import time
 from datetime import datetime
 from typing import TYPE_CHECKING
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 if TYPE_CHECKING:
     from brightness_monitor.storage import BurnRate
     from brightness_monitor.usage import UsageData
 
 log = logging.getLogger(__name__)
+
+# inter-service coordination with sttts
+_sttts_relay_url: str | None = None
+_MIC_POLL_INTERVAL = 0.5  # seconds between mic-status checks
+_MIC_WAIT_TIMEOUT = 30.0  # max seconds to wait for mic idle
+
+
+def configure(sttts_relay_url: str | None = None) -> None:
+    """set module-level config for sttts mic coordination."""
+    global _sttts_relay_url
+    _sttts_relay_url = sttts_relay_url
+    if _sttts_relay_url:
+        log.info(
+            "speech will defer to sttts mic at %(url)s",
+            {"url": _sttts_relay_url},
+        )
+
+
+def _is_mic_capturing() -> bool | None:
+    """check if sttts mic is currently capturing.
+
+    returns True/False for mic state, or None if sttts is unreachable.
+    """
+    if not _sttts_relay_url:
+        return None
+
+    url = "%(base)s/mic-status" % {"base": _sttts_relay_url.rstrip("/")}
+    try:
+        request = Request(url)
+        with urlopen(request, timeout=1.0) as response:
+            data = json.loads(response.read())
+            return data.get("capturing", False)
+    except (URLError, OSError, json.JSONDecodeError, KeyError):
+        return None
+
+
+def _wait_for_mic_idle() -> None:
+    """block until sttts mic capture is inactive.
+
+    polls the sttts relay's /mic-status endpoint. returns immediately if:
+    - no relay URL configured
+    - sttts is unreachable
+    - mic is not capturing
+    - timeout exceeded
+    """
+    if not _sttts_relay_url:
+        return
+
+    deadline = time.monotonic() + _MIC_WAIT_TIMEOUT
+
+    while time.monotonic() < deadline:
+        capturing = _is_mic_capturing()
+
+        # None = unreachable, False = idle — either way, proceed
+        if capturing is not True:
+            return
+
+        remaining = deadline - time.monotonic()
+        log.debug(
+            "mic active, delaying speech (%(remaining).1fs remaining)",
+            {"remaining": remaining},
+        )
+        time.sleep(_MIC_POLL_INTERVAL)
+
+    log.warning(
+        "mic-idle wait timed out after %(timeout).0fs, speaking anyway",
+        {"timeout": _MIC_WAIT_TIMEOUT},
+    )
 
 
 def _format_relative_time(target: datetime | None) -> str:
@@ -141,7 +213,12 @@ def speak_full_status(usage: UsageData) -> None:
 
 
 def _speak_kokoro(text: str) -> None:
-    """shared helper: fire-and-forget kokoro speech at 1.4x speed."""
+    """shared helper: fire-and-forget kokoro speech at 1.4x speed.
+
+    waits for sttts mic to go idle before speaking, so announcements
+    don't bleed into voice recordings.
+    """
+    _wait_for_mic_idle()
     try:
         subprocess.Popen(
             ["cute-say", "-k", "-s", "1.4", text],

@@ -31,6 +31,9 @@ from brightness_monitor.speech import (
     speak_full_status,
     speak_hourly_status,
 )
+from brightness_monitor.speech import (
+    configure as configure_speech,
+)
 from brightness_monitor.storage import (
     calculate_burn_rate,
     initialize_database,
@@ -156,6 +159,11 @@ def run_daemon(
     token_override: str | None = None,
 ) -> None:
     """main loop: poll usage, map to brightness, readout on threshold crossings."""
+    # configure speech module for sttts mic coordination
+    configure_speech(
+        sttts_relay_url=config.sttts.relay_url if config.sttts.enabled else None,
+    )
+
     handler = ShutdownHandler()
     signal.signal(signal.SIGINT, handler.handle_signal)
     signal.signal(signal.SIGTERM, handler.handle_signal)

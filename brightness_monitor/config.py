@@ -47,10 +47,17 @@ class OutputConfig:
 
 
 @dataclass
+class StttsConfig:
+    enabled: bool = True
+    relay_url: str = "http://127.0.0.1:8393"
+
+
+@dataclass
 class Config:
     window: str = "five_hour"
     poll_interval: int = 60
     output: OutputConfig = field(default_factory=OutputConfig)
+    sttts: StttsConfig = field(default_factory=StttsConfig)
 
 
 def _parse_nested_dataclass(dataclass_type, raw: dict):
@@ -91,9 +98,18 @@ def load_config(path: Path | None = None) -> Config:
         keyboard=keyboard,
     )
 
+    # parse sttts section
+    sttts_raw = raw.pop("sttts", {}) or {}
+    sttts = _parse_nested_dataclass(StttsConfig, sttts_raw)
+
     config = Config(
-        **{key: raw[key] for key in Config.__dataclass_fields__ if key in raw and key != "output"}
+        **{
+            key: raw[key]
+            for key in Config.__dataclass_fields__
+            if key in raw and key not in ("output", "sttts")
+        }
     )
     config.output = output
+    config.sttts = sttts
 
     return config

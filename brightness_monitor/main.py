@@ -10,10 +10,12 @@ import argparse
 import logging
 from pathlib import Path
 
+from prism.logging import configure_logging, get_logger
+
 from brightness_monitor.config import load_config
 from brightness_monitor.daemon import run_daemon
 
-log = logging.getLogger("brightness_monitor")
+logger = get_logger()
 
 
 def main():
@@ -46,36 +48,26 @@ def main():
 
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    configure_logging(level=logging.DEBUG if args.verbose else logging.INFO)
 
     config_path = Path(args.config) if args.config else None
     config = load_config(config_path)
 
     kb = config.output.keyboard
-    log.info(
-        "config: window=%(window)s, poll=%(poll)ds, "
-        "output: speech=%(speech)s keyboard=%(keyboard)s",
-        {
-            "window": config.window,
-            "poll": config.poll_interval,
-            "speech": config.output.speech,
-            "keyboard": kb.enabled,
-        },
+    logger.info(
+        "config loaded",
+        window=config.window,
+        poll_interval=config.poll_interval,
+        speech=config.output.speech,
+        keyboard=kb.enabled,
     )
     if kb.enabled:
-        log.info(
-            "keyboard: fade=%(fade)d, pulse<%(pulse).0f%%, "
-            "readout every %(every).0f%% below %(thresh).0f%%",
-            {
-                "fade": kb.fade_speed,
-                "pulse": kb.pulse_threshold,
-                "every": kb.readout.every_percent,
-                "thresh": kb.readout.threshold,
-            },
+        logger.info(
+            "keyboard config",
+            fade=kb.fade_speed,
+            pulse_threshold=kb.pulse_threshold,
+            readout_every=kb.readout.every_percent,
+            readout_threshold=kb.readout.threshold,
         )
 
     run_daemon(

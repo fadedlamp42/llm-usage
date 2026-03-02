@@ -6,13 +6,13 @@ missing keys fall back to built-in defaults.
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
+from prism.logging import get_logger
 
-log = logging.getLogger(__name__)
+logger = get_logger()
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.yaml"
@@ -72,13 +72,13 @@ def load_config(path: Path | None = None) -> Config:
     config_path = path or DEFAULT_CONFIG_PATH
 
     if not config_path.exists():
-        log.info("no config.yaml found, using defaults")
+        logger.info("no config.yaml found, using defaults")
         return Config()
 
     with open(config_path) as handle:
         raw = yaml.safe_load(handle) or {}
 
-    log.debug("loaded config from %(path)s", {"path": config_path})
+    logger.debug("loaded config", path=str(config_path))
 
     # parse output section
     output_raw = raw.pop("output", {}) or {}

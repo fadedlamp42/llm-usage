@@ -7,11 +7,12 @@ and during runtime (periodic auto-reauth to minimize UsageDB gaps).
 
 from __future__ import annotations
 
-import logging
 import shutil
 import subprocess
 
-log = logging.getLogger(__name__)
+from prism.logging import get_logger
+
+logger = get_logger()
 
 # how often to automatically attempt re-authentication when token is expired.
 # keeps UsageDB gaps to at most this duration instead of waiting for SIGUSR1.
@@ -26,10 +27,10 @@ def attempt_reauth() -> bool:
     """
     claude_path = shutil.which("claude")
     if not claude_path:
-        log.error("claude CLI not found in PATH, cannot re-authenticate")
+        logger.error("claude CLI not found in PATH, cannot re-authenticate")
         return False
 
-    log.info("starting claude auth login")
+    logger.info("starting claude auth login")
     try:
         result = subprocess.run(
             [claude_path, "auth", "login"],
@@ -38,20 +39,18 @@ def attempt_reauth() -> bool:
             text=True,
         )
         if result.returncode == 0:
-            log.info("claude auth login succeeded")
+            logger.info("claude auth login succeeded")
             return True
 
-        log.warning(
-            "claude auth login failed (exit %(code)d): %(stderr)s",
-            {"code": result.returncode, "stderr": result.stderr.strip()},
+        logger.warning(
+            "claude auth login failed",
+            exit_code=result.returncode,
+            stderr=result.stderr.strip(),
         )
         return False
     except subprocess.TimeoutExpired:
-        log.warning("claude auth login timed out after 120s")
+        logger.warning("claude auth login timed out after 120s")
         return False
     except Exception as error:
-        log.warning(
-            "claude auth login error: %(error)s",
-            {"error": error},
-        )
+        logger.warning("claude auth login error", error=str(error))
         return False

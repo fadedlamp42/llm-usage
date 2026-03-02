@@ -8,17 +8,18 @@ controls MacBook keyboard brightness to reflect Claude API usage:
 
 from __future__ import annotations
 
-import logging
 import math
 import time
 from typing import TYPE_CHECKING
+
+from prism.logging import get_logger
 
 from brightness_monitor.brightness import set_brightness
 
 if TYPE_CHECKING:
     from brightness_monitor.config import KeyboardConfig
 
-log = logging.getLogger(__name__)
+logger = get_logger()
 
 # pulse animation frame rate
 PULSE_FRAME_SECONDS = 0.05  # ~20fps
@@ -107,10 +108,7 @@ def blink_percentage_readout(
     tens = clamped // 10
     ones = clamped % 10
 
-    log.info(
-        "readout: %(pct)d%% remaining -> %(tens)d + %(ones)d blinks",
-        {"pct": clamped, "tens": tens, "ones": ones},
-    )
+    logger.info("readout", remaining_percent=clamped, tens=tens, ones=ones)
 
     readout = keyboard_config.readout
     fade = readout.fade_speed

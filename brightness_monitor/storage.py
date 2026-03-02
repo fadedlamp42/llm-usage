@@ -10,17 +10,18 @@ to calculate consumption rate and project forward to window reset.
 
 from __future__ import annotations
 
-import logging
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from prism.logging import get_logger
+
 if TYPE_CHECKING:
     from brightness_monitor.usage import UsageData
 
-log = logging.getLogger(__name__)
+logger = get_logger()
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "usage.db"
 
@@ -48,7 +49,7 @@ def initialize_database(db_path: Path | None = None) -> sqlite3.Connection:
     returns a persistent connection for the daemon's lifetime.
     """
     path = db_path or DEFAULT_DB_PATH
-    log.info("opening usage database at %(path)s", {"path": path})
+    logger.info("opening usage database", path=str(path))
 
     connection = sqlite3.connect(str(path))
     connection.executescript(SCHEMA)
@@ -79,10 +80,7 @@ def record_poll(connection: sqlite3.Connection, usage: UsageData) -> None:
     )
     connection.commit()
 
-    log.debug(
-        "recorded %(count)d usage windows at %(time)s",
-        {"count": len(rows), "time": now},
-    )
+    logger.debug("recorded usage windows", count=len(rows), time=now)
 
 
 @dataclass

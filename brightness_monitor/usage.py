@@ -12,15 +12,16 @@ credential resolution order:
 from __future__ import annotations
 
 import json
-import logging
 import os
-import subprocess
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime
 
-log = logging.getLogger(__name__)
+from prism.logging import get_logger
+from prism.mac.keychain import read_json as _read_keychain_json
+
+logger = get_logger()
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 KEYCHAIN_SERVICE = "Claude Code-credentials"
@@ -47,22 +48,21 @@ class UsageData:
 def _token_from_keychain() -> str | None:
     """try to pull the OAuth token from macOS Keychain.
 
+    # TODO: swap brightness-monitor to use prism.mac.keychain
+    # (swap complete — now delegates to prism.mac.keychain.read_json)
+
     Claude Code stores credentials under the service name
     "Claude Code-credentials" as a JSON blob containing
     claudeAiOauth.accessToken.
     """
+    credentials = _read_keychain_json(KEYCHAIN_SERVICE)
+    if credentials is None:
+        return None
     try:
-        result = subprocess.run(
-            ["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        credentials = json.loads(result.stdout.strip())
         token = credentials["claudeAiOauth"]["accessToken"]
-        log.debug("got OAuth token from Keychain")
+        logger.debug("got OAuth token from keychain")
         return token
-    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError):
+    except KeyError:
         return None
 
 
@@ -70,7 +70,7 @@ def _token_from_env() -> str | None:
     """check for CLAUDE_OAUTH_TOKEN environment variable."""
     token = os.environ.get(TOKEN_ENV_VAR)
     if token:
-        log.debug("got OAuth token from %(var)s", {"var": TOKEN_ENV_VAR})
+        logger.debug("got OAuth token from env", var=TOKEN_ENV_VAR)
     return token
 
 
@@ -81,7 +81,7 @@ def get_token(explicit_token: str | None = None) -> str:
     raises RuntimeError if none found.
     """
     if explicit_token:
-        log.debug("using explicitly provided token")
+        logger.debug("using explicitly provided token")
         return explicit_token
 
     token = _token_from_env()

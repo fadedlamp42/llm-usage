@@ -1,4 +1,7 @@
-"""voice output for brightness-monitor via cute-say.
+"""voice output for brightness-monitor via prism.mac.speech.
+
+# TODO: swap brightness-monitor to use prism.mac.speech
+# (swap complete — _speak_kokoro now delegates to prism.mac.speech.say)
 
 three modes:
   - hourly status: remaining %, reset time, and pace observation via naturalized chatterbox
@@ -9,19 +12,20 @@ three modes:
 from __future__ import annotations
 
 import json
-import logging
-import subprocess
 import time
 from datetime import datetime
 from typing import TYPE_CHECKING
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+from prism.logging import get_logger
+from prism.mac.speech import say as _prism_say
+
 if TYPE_CHECKING:
     from brightness_monitor.storage import BurnRate
     from brightness_monitor.usage import UsageData
 
-log = logging.getLogger(__name__)
+logger = get_logger()
 
 # inter-service coordination with sttts
 _sttts_relay_url: str | None = None
@@ -34,10 +38,7 @@ def configure(sttts_relay_url: str | None = None) -> None:
     global _sttts_relay_url
     _sttts_relay_url = sttts_relay_url
     if _sttts_relay_url:
-        log.info(
-            "speech will defer to sttts mic at %(url)s",
-            {"url": _sttts_relay_url},
-        )
+        logger.info("speech will defer to sttts mic", url=_sttts_relay_url)
 
 
 def _is_mic_capturing() -> bool | None:
@@ -80,16 +81,10 @@ def _wait_for_mic_idle() -> None:
             return
 
         remaining = deadline - time.monotonic()
-        log.debug(
-            "mic active, delaying speech (%(remaining).1fs remaining)",
-            {"remaining": remaining},
-        )
+        logger.debug("mic active, delaying speech", remaining=round(remaining, 1))
         time.sleep(_MIC_POLL_INTERVAL)
 
-    log.warning(
-        "mic-idle wait timed out after %(timeout).0fs, speaking anyway",
-        {"timeout": _MIC_WAIT_TIMEOUT},
-    )
+    logger.warning("mic-idle wait timed out, speaking anyway", timeout=_MIC_WAIT_TIMEOUT)
 
 
 def _format_relative_time(target: datetime | None) -> str:
@@ -181,7 +176,7 @@ def speak_hourly_status(usage: UsageData, burn_rate: BurnRate) -> None:
     windows_by_name = {w.name: w for w in usage.windows}
     five_hour = windows_by_name.get("five_hour")
     if not five_hour:
-        log.warning("no five_hour window available for hourly readout")
+        logger.warning("no five_hour window available for hourly readout")
         return
 
     hr_left = int(100 - five_hour.utilization)
@@ -197,7 +192,7 @@ def speak_hourly_status(usage: UsageData, burn_rate: BurnRate) -> None:
         parts.append("on pace to use %d percent of the window" % projected_used)
 
     text = ". ".join(parts)
-    log.info("hourly readout: %(text)s", {"text": text})
+    logger.info("hourly readout", text=text)
     _speak_kokoro(text)
 
 
@@ -208,7 +203,7 @@ def speak_full_status(usage: UsageData) -> None:
     uses kokoro mode for speed control.
     """
     text = format_voice_status(usage)
-    log.info("voice readout: %(text)s", {"text": text})
+    logger.info("voice readout", text=text)
     _speak_kokoro(text)
 
 
@@ -219,27 +214,20 @@ def _speak_kokoro(text: str) -> None:
     don't bleed into voice recordings.
     """
     _wait_for_mic_idle()
-    try:
-        subprocess.Popen(
-            ["cute-say", "-k", "-s", "1.4", text],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except FileNotFoundError:
-        log.warning("cute-say not found in PATH, skipping speech")
+    _prism_say(text, blocking=False, extra_args=["-k", "-s", "1.4"])
 
 
 def announce_auth_expired() -> None:
     """tell the user their auth token expired and how to fix it."""
     text = "hey, gotta login"
-    log.info("auth expired announcement")
+    logger.info("auth expired announcement")
     _speak_kokoro(text)
 
 
 def announce_auth_login_started() -> None:
     """confirm that the login flow has been kicked off."""
     text = "opening login now"
-    log.info("auth login started announcement")
+    logger.info("auth login started announcement")
     _speak_kokoro(text)
 
 
@@ -249,8 +237,5 @@ def announce_auth_login_result(success: bool) -> None:
         text = "logged back in, resuming"
     else:
         text = "that didn't work, try again"
-    log.info(
-        "auth login result: %(result)s",
-        {"result": "success" if success else "failure"},
-    )
+    logger.info("auth login result", success=success)
     _speak_kokoro(text)

@@ -10,6 +10,7 @@ requires-python = ">=3.10"
 dependencies = [
     "pyobjc-core>=10.0",
     "PyYAML>=6.0",
+    "prism-shared-python",  # local: pip install -e /path/to/prism-shared-python
 ]
 
 [project.optional-dependencies]

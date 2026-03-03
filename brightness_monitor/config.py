@@ -48,6 +48,12 @@ class OutputConfig:
 
 @dataclass
 class StttsConfig:
+    """sttts mic coordination — speech waits indefinitely for mic idle.
+
+    when enabled, all speech is held until the mic stops capturing.
+    no timeout; speech is never forced through during active mic.
+    """
+
     enabled: bool = True
     relay_url: str = "http://127.0.0.1:8393"
 

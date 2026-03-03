@@ -12,8 +12,10 @@ window: "five_hour"
 poll_interval: 60
 
 # sttts inter-service coordination
-# speech announcements are delayed while sttts mic capture is active,
-# polled via GET /mic-status on the relay
+# speech announcements wait indefinitely for mic idle before speaking,
+# polled via GET /mic-status on the relay. speech is never forced
+# through while the mic is capturing — it queues until idle.
+# (handled by prism.mac.speech; logs every 30s while waiting)
 sttts:
   enabled: true
   # relay_url: "http://127.0.0.1:8393"  # default; override for remote hosts

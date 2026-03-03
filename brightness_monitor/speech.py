@@ -1,24 +1,21 @@
 """voice output for brightness-monitor via prism.mac.speech.
 
-# TODO: swap brightness-monitor to use prism.mac.speech
-# (swap complete — _speak_kokoro now delegates to prism.mac.speech.say)
-
 three modes:
   - hourly status: remaining %, reset time, and pace observation via naturalized chatterbox
   - full report: thorough status via kokoro at 1.4x speed covering all windows
   - auth alerts: notify about expired tokens and prompt for re-login
+
+mic coordination (waiting for sttts mic idle before speaking) is handled
+by prism.mac.speech — just pass the relay URL through configure().
 """
 
 from __future__ import annotations
 
-import json
-import time
 from datetime import datetime
 from typing import TYPE_CHECKING
-from urllib.error import URLError
-from urllib.request import Request, urlopen
 
 from prism.logging import get_logger
+from prism.mac.speech import configure as _configure_speech
 from prism.mac.speech import say as _prism_say
 
 if TYPE_CHECKING:
@@ -27,64 +24,10 @@ if TYPE_CHECKING:
 
 logger = get_logger()
 
-# inter-service coordination with sttts
-_sttts_relay_url: str | None = None
-_MIC_POLL_INTERVAL = 0.5  # seconds between mic-status checks
-_MIC_WAIT_TIMEOUT = 30.0  # max seconds to wait for mic idle
-
 
 def configure(sttts_relay_url: str | None = None) -> None:
-    """set module-level config for sttts mic coordination."""
-    global _sttts_relay_url
-    _sttts_relay_url = sttts_relay_url
-    if _sttts_relay_url:
-        logger.info("speech will defer to sttts mic", url=_sttts_relay_url)
-
-
-def _is_mic_capturing() -> bool | None:
-    """check if sttts mic is currently capturing.
-
-    returns True/False for mic state, or None if sttts is unreachable.
-    """
-    if not _sttts_relay_url:
-        return None
-
-    url = "%(base)s/mic-status" % {"base": _sttts_relay_url.rstrip("/")}
-    try:
-        request = Request(url)
-        with urlopen(request, timeout=1.0) as response:
-            data = json.loads(response.read())
-            return data.get("capturing", False)
-    except (URLError, OSError, json.JSONDecodeError, KeyError):
-        return None
-
-
-def _wait_for_mic_idle() -> None:
-    """block until sttts mic capture is inactive.
-
-    polls the sttts relay's /mic-status endpoint. returns immediately if:
-    - no relay URL configured
-    - sttts is unreachable
-    - mic is not capturing
-    - timeout exceeded
-    """
-    if not _sttts_relay_url:
-        return
-
-    deadline = time.monotonic() + _MIC_WAIT_TIMEOUT
-
-    while time.monotonic() < deadline:
-        capturing = _is_mic_capturing()
-
-        # None = unreachable, False = idle — either way, proceed
-        if capturing is not True:
-            return
-
-        remaining = deadline - time.monotonic()
-        logger.debug("mic active, delaying speech", remaining=round(remaining, 1))
-        time.sleep(_MIC_POLL_INTERVAL)
-
-    logger.warning("mic-idle wait timed out, speaking anyway", timeout=_MIC_WAIT_TIMEOUT)
+    """configure speech, passing mic coordination through to prism.mac.speech."""
+    _configure_speech(sttts_relay_url=sttts_relay_url)
 
 
 def _format_relative_time(target: datetime | None) -> str:
@@ -210,10 +153,8 @@ def speak_full_status(usage: UsageData) -> None:
 def _speak_kokoro(text: str) -> None:
     """shared helper: fire-and-forget kokoro speech at 1.4x speed.
 
-    waits for sttts mic to go idle before speaking, so announcements
-    don't bleed into voice recordings.
+    mic coordination (waiting for idle) is handled by prism.mac.speech.say().
     """
-    _wait_for_mic_idle()
     _prism_say(text, blocking=False, extra_args=["-k", "-s", "1.4"])
 
 

@@ -42,6 +42,7 @@ select = [
     "RET",    # flake8-return
     "TCH",    # flake8-type-checking - move imports behind TYPE_CHECKING
     "LOG",    # flake8-logging
+    "T201",   # print() statements - use structlog instead
 ]
 ignore = [
     "E501",   # line length handled by formatter

@@ -1,5 +1,28 @@
-Sync keyboard brightness to Claude limit usage
+sync keyboard brightness to ai usage windows
 
-Darker = less tokens remaining, reset to full brightness when 5-hour block resets
+darker = less remaining usage; reset to full brightness when the tracked window resets.
 
-`ses_36d2aff03ffe0HIO2Y8DyBr4e6`
+## providers
+
+- `claude`: polls anthropic oauth usage windows (five-hour + weekly windows from `/limits`)
+- `codex`: reads local codex rollout logs from `~/.codex/sessions` and uses the same `/status` rate-limit windows
+
+configure provider and tracked window in `config.yaml`.
+
+# tasks
+
+## todo
+
+## ongoing
+
+### active
+
+- [ ] Codex support via API - `ses_344c1d07cffeBslyiLe6CdRXbA`
+
+### passive
+
+### waiting
+
+## done
+
+## cancelled

@@ -6,7 +6,7 @@
 # - "codex": poll codex/chatgpt usage API (`/backend-api/wham/usage`)
 # - "codex_logs": parse local codex session logs (~/.codex/sessions)
 provider:
-  name: "codex"
+  name: "claude"
   codex:
     # primary auth source (official codex CLI auth file)
     auth_file: "~/.codex/auth.json"

@@ -124,7 +124,7 @@ def fetch_usage(token: str) -> UsageData:
             raise AuthExpiredError(
                 "OAuth token expired or invalid; re-authenticate or provide a fresh token"
             ) from error
-        raise
+        raise RuntimeError("usage request failed: HTTP %(code)s" % {"code": error.code}) from error
     except urllib.error.URLError as error:
         raise RuntimeError("network error fetching usage: %(error)s" % {"error": error}) from error
 

@@ -41,7 +41,7 @@ provider:
 window: "five_hour"
 
 # how often to poll the configured provider
-poll_interval: 60
+poll_interval: 120
 
 # sttts inter-service coordination
 # speech announcements wait indefinitely for mic idle before speaking,

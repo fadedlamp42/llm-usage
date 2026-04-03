@@ -14,7 +14,14 @@ from typing import TYPE_CHECKING
 from prism.logging import get_logger
 
 from brightness_monitor.auth import attempt_reauth
-from brightness_monitor.usage import UsageData, fetch_usage, get_token
+from brightness_monitor.usage import (
+    ProfileInfo,
+    UsageData,
+    fetch_profile,
+    fetch_usage,
+    get_token,
+    token_fingerprint,
+)
 
 if TYPE_CHECKING:
     from brightness_monitor.config import Config
@@ -35,18 +42,47 @@ class UsageProvider:
 
 
 class ClaudeUsageProvider(UsageProvider):
-    """usage provider that delegates to the existing claude oauth implementation."""
+    """usage provider that delegates to the existing claude oauth implementation.
+
+    caches account profile info and invalidates it when the OAuth token
+    changes (i.e. when the user switches accounts), so account switches
+    are detected reactively without requiring a daemon restart.
+    """
 
     provider_name = "claude"
 
     def __init__(self, token_override: str | None = None):
         self._token_override = token_override
+        self._cached_profile: ProfileInfo | None = None
+        self._last_token_fingerprint: str | None = None
 
     def fetch_usage(self) -> UsageData:
         token = get_token(explicit_token=self._token_override)
-        return fetch_usage(token)
+
+        # detect account switch by comparing token fingerprints
+        fingerprint = token_fingerprint(token)
+        if fingerprint != self._last_token_fingerprint:
+            try:
+                self._cached_profile = fetch_profile(token)
+                logger.info(
+                    "resolved account profile",
+                    email=self._cached_profile.email,
+                    plan=self._cached_profile.organization_type,
+                    tier=self._cached_profile.rate_limit_tier,
+                )
+            except Exception as error:
+                # profile fetch is best-effort; usage polling should not break
+                logger.warning("failed to fetch account profile", error=str(error))
+                self._cached_profile = None
+            self._last_token_fingerprint = fingerprint
+
+        usage = fetch_usage(token)
+        usage.account_email = self._cached_profile.email if self._cached_profile else None
+        return usage
 
     def attempt_reauth(self) -> bool:
+        # invalidate profile cache so it gets re-fetched with the new token
+        self._last_token_fingerprint = None
         return attempt_reauth()
 
 

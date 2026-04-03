@@ -85,6 +85,8 @@ class ProviderConfig:
 class Config:
     window: str = "five_hour"
     poll_interval: int = 60
+    accounts: list[str] = field(default_factory=list)
+    switch_threshold: float = 90.0
     provider: ProviderConfig = field(default_factory=ProviderConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     sttts: StttsConfig = field(default_factory=StttsConfig)

@@ -48,19 +48,28 @@ PROVIDER_INDEX_SQL = (
     "ON usage_polls (provider, window_name, polled_at)"
 )
 
+ACCOUNT_EMAIL_INDEX_SQL = (
+    "CREATE INDEX IF NOT EXISTS idx_polls_account_email ON usage_polls (account_email)"
+)
 
-def _migrate_provider_column_if_missing(connection: sqlite3.Connection) -> None:
-    """backfill `provider` column on older databases created pre-providers."""
+
+def _migrate_add_column_if_missing(
+    connection: sqlite3.Connection,
+    column_name: str,
+    column_definition: str,
+) -> None:
+    """add a column to usage_polls if it doesn't exist yet."""
     columns = connection.execute("PRAGMA table_info(usage_polls)").fetchall()
     column_names = {column[1] for column in columns}
-    if "provider" in column_names:
+    if column_name in column_names:
         return
 
     connection.execute(
-        "ALTER TABLE usage_polls ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude'"
+        "ALTER TABLE usage_polls ADD COLUMN %(column)s %(definition)s"
+        % {"column": column_name, "definition": column_definition}
     )
     connection.commit()
-    logger.info("migrated usage_polls table", added_column="provider")
+    logger.info("migrated usage_polls table", added_column=column_name)
 
 
 def initialize_database(db_path: Path | None = None) -> sqlite3.Connection:
@@ -73,8 +82,13 @@ def initialize_database(db_path: Path | None = None) -> sqlite3.Connection:
 
     connection = sqlite3.connect(str(path))
     connection.executescript(SCHEMA)
-    _migrate_provider_column_if_missing(connection)
+
+    # incremental migrations for columns added after initial schema
+    _migrate_add_column_if_missing(connection, "provider", "TEXT NOT NULL DEFAULT 'claude'")
+    _migrate_add_column_if_missing(connection, "account_email", "TEXT")
+
     connection.execute(PROVIDER_INDEX_SQL)
+    connection.execute(ACCOUNT_EMAIL_INDEX_SQL)
     connection.commit()
 
     return connection
@@ -96,18 +110,26 @@ def record_poll(
             window.utilization,
             100.0 - window.utilization,
             window.resets_at.isoformat() if window.resets_at else None,
+            usage.account_email,
         )
         for window in usage.windows
     ]
 
     connection.executemany(
-        "INSERT INTO usage_polls (provider, polled_at, window_name, utilization, remaining, resets_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO usage_polls "
+        "(provider, polled_at, window_name, utilization, remaining, resets_at, account_email) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
         rows,
     )
     connection.commit()
 
-    logger.debug("recorded usage windows", provider=provider_name, count=len(rows), time=now)
+    logger.debug(
+        "recorded usage windows",
+        provider=provider_name,
+        account=usage.account_email or "unknown",
+        count=len(rows),
+        time=now,
+    )
 
 
 @dataclass
@@ -125,6 +147,56 @@ class BurnRate:
 
     sample_minutes: float
     """how many minutes of history the rate was calculated from."""
+
+
+@dataclass
+class AccountUtilization:
+    """last known utilization for an account on a specific window."""
+
+    account_email: str
+    utilization: float
+    remaining: float
+    polled_at: str
+
+
+def get_alternative_account_utilizations(
+    connection: sqlite3.Connection,
+    window_name: str,
+    current_email: str,
+    candidate_emails: list[str],
+) -> list[AccountUtilization]:
+    """find the most recent utilization for each candidate account.
+
+    returns only accounts we have data for, sorted by remaining
+    capacity (most remaining first). accounts with no historical
+    data are not returned — the caller can infer those are "unknown".
+    """
+    alternatives = [email for email in candidate_emails if email != current_email]
+    if not alternatives:
+        return []
+
+    placeholders = ", ".join("?" for _ in alternatives)
+    query = (
+        "SELECT account_email, utilization, remaining, polled_at "
+        "FROM usage_polls "
+        "WHERE window_name = ? "
+        "AND account_email IN (%(placeholders)s) "
+        "GROUP BY account_email "
+        "HAVING polled_at = MAX(polled_at) "
+        "ORDER BY remaining DESC" % {"placeholders": placeholders}
+    )
+
+    rows = connection.execute(query, [window_name, *alternatives]).fetchall()
+
+    return [
+        AccountUtilization(
+            account_email=row[0],
+            utilization=row[1],
+            remaining=row[2],
+            polled_at=row[3],
+        )
+        for row in rows
+    ]
 
 
 # how far back to look for burn rate calculation

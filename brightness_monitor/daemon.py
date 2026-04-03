@@ -33,12 +33,14 @@ from brightness_monitor.speech import (
     announce_auth_login_started,
     speak_full_status,
     speak_hourly_status,
+    suggest_account_switch,
 )
 from brightness_monitor.speech import (
     configure as configure_speech,
 )
 from brightness_monitor.storage import (
     calculate_burn_rate,
+    get_alternative_account_utilizations,
     initialize_database,
     record_poll,
 )
@@ -95,6 +97,8 @@ class ShutdownHandler:
 def format_status(usage: UsageData) -> str:
     """single-line summary of all usage windows for logging."""
     parts = []
+    if usage.account_email:
+        parts.append(usage.account_email)
     for window in usage.windows:
         remaining = 100.0 - window.utilization
         label = window.name.replace("_", " ")
@@ -222,6 +226,7 @@ def run_daemon(
     auth_expired = False
     last_reauth_attempt: float = 0.0
     screen_was_locked = False
+    switch_suggested = False  # debounce: only suggest once per threshold crossing
 
     try:
         while handler.running:
@@ -330,6 +335,28 @@ def run_daemon(
             remaining = 100.0 - tracked.utilization
 
             logger.info(format_status(usage))
+
+            # account switch suggestion — fires once when crossing the
+            # threshold, resets when utilization drops back below it
+            if config.accounts and config.output.speech and usage.account_email:
+                over_threshold = tracked.utilization >= config.switch_threshold
+                if over_threshold and not switch_suggested:
+                    switch_suggested = True
+                    alternatives = get_alternative_account_utilizations(
+                        db,
+                        tracked.name,
+                        usage.account_email,
+                        config.accounts,
+                    )
+                    known_emails = {a.account_email for a in alternatives}
+                    unknown_emails = [
+                        email
+                        for email in config.accounts
+                        if email != usage.account_email and email not in known_emails
+                    ]
+                    suggest_account_switch(alternatives, unknown_emails)
+                if not over_threshold:
+                    switch_suggested = False
 
             # check if we crossed a percentage threshold since last readout
             current_bucket = _readout_bucket(

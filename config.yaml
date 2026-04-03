@@ -33,6 +33,15 @@ provider:
     # warn if latest token_count event is older than this (codex_logs only)
     max_staleness_seconds: 1800
 
+# account rotation — when the tracked window hits switch_threshold %
+# utilization, suggest switching to the account with the most remaining
+# capacity (based on last known poll data in usage.db)
+accounts:
+  - fadedlamp@gmail.com
+  - fadedlamp42@gmail.com
+  - peter@prism-dynamics.org
+switch_threshold: 90
+
 # which usage window to track for brightness and readout
 # "five_hour" = the 5-hour sliding window (resets frequently, gates immediate usage)
 # "seven_day" = weekly aggregate

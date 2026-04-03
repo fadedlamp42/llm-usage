@@ -21,6 +21,8 @@ configure provider and tracked window in `config.yaml`.
 
 ### passive
 
+- account support: `ses_2ac4222c4ffeb3hlQz0LSMF5cs`
+
 ### waiting
 
 - [ ] Codex support via API - `ses_344c1d07cffeBslyiLe6CdRXbA`

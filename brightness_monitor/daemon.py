@@ -27,6 +27,7 @@ from brightness_monitor.keyboard import (
     utilization_to_brightness,
 )
 from brightness_monitor.providers import create_usage_provider
+from brightness_monitor.server import start_status_server
 from brightness_monitor.speech import (
     announce_auth_expired,
     announce_auth_login_result,
@@ -209,10 +210,19 @@ def run_daemon(
 
     signal.signal(signal.SIGUSR2, handle_usr2)
 
-    _validate_provider_at_startup(handler, config, provider)
-
     # initialize usage history database
     db = initialize_database()
+
+    # start status HTTP server — serves directly from usage.db,
+    # so it works immediately even before the first poll
+    status_server = start_status_server(
+        port=config.status_port,
+        provider_name=provider.provider_name,
+        tracked_window=config.window,
+        poll_interval=config.poll_interval,
+    )
+
+    _validate_provider_at_startup(handler, config, provider)
 
     if not dry_run and keyboard.enabled:
         handler.save_state()
@@ -313,7 +323,8 @@ def run_daemon(
                 last_fetch_time = time.monotonic()
                 cached_usage = usage
 
-                # record fresh polls to sqlite for usage history
+                # record fresh polls to sqlite for usage history.
+                # the status server reads from this db on each request.
                 try:
                     record_poll(db, usage, provider_name=provider.provider_name)
                 except Exception as error:
@@ -448,6 +459,7 @@ def run_daemon(
                 handler.interruptible_sleep(config.poll_interval)
 
     finally:
+        status_server.shutdown()
         if not dry_run and keyboard.enabled:
             handler.restore_state()
         db.close()

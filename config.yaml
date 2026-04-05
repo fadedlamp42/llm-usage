@@ -1,4 +1,4 @@
-# brightness-monitor configuration
+# llm-usage configuration
 # all durations are in seconds unless noted otherwise
 
 # usage provider
@@ -98,7 +98,7 @@ output:
     # a digit of 0 is shown as one long blink
     #
     # also triggerable on-demand via SIGUSR1:
-    #   pm2 sendSignal SIGUSR1 brightness-monitor
+    #   pm2 sendSignal SIGUSR1 llm-usage
 
     readout:
       # trigger a readout every time remaining crosses a multiple of this

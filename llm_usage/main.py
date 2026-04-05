@@ -1,4 +1,4 @@
-"""CLI entrypoint for brightness-monitor.
+"""CLI entrypoint for llm-usage.
 
 parses arguments, configures logging, loads config, and hands off
 to the daemon loop. this is the only module that touches argparse.
@@ -12,15 +12,15 @@ from pathlib import Path
 
 from prism.logging import configure_logging, get_logger
 
-from brightness_monitor.config import load_config
-from brightness_monitor.daemon import run_daemon
+from llm_usage.config import load_config
+from llm_usage.daemon import run_daemon
 
 logger = get_logger()
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="sync MacBook keyboard brightness to AI usage windows",
+        description="track LLM CLI usage windows with keyboard + voice feedback",
     )
     parser.add_argument(
         "--config",

@@ -15,20 +15,20 @@ from typing import TYPE_CHECKING
 from prism.logging import get_logger
 from prism.mac.screen import is_screen_locked
 
-from brightness_monitor.brightness import (
+from llm_usage.brightness import (
     get_brightness,
     set_auto_brightness,
     set_brightness,
     suspend_idle_dimming,
 )
-from brightness_monitor.keyboard import (
+from llm_usage.keyboard import (
     blink_percentage_readout,
     pulse_brightness,
     utilization_to_brightness,
 )
-from brightness_monitor.providers import create_usage_provider
-from brightness_monitor.server import start_status_server
-from brightness_monitor.speech import (
+from llm_usage.providers import create_usage_provider
+from llm_usage.server import start_status_server
+from llm_usage.speech import (
     announce_auth_expired,
     announce_auth_login_result,
     announce_auth_login_started,
@@ -36,20 +36,20 @@ from brightness_monitor.speech import (
     speak_hourly_status,
     suggest_account_switch,
 )
-from brightness_monitor.speech import (
+from llm_usage.speech import (
     configure as configure_speech,
 )
-from brightness_monitor.storage import (
+from llm_usage.storage import (
     calculate_burn_rate,
     get_alternative_account_utilizations,
     initialize_database,
     record_poll,
 )
-from brightness_monitor.usage import AuthExpiredError, UsageData
+from llm_usage.usage import AuthExpiredError, UsageData
 
 if TYPE_CHECKING:
-    from brightness_monitor.config import Config
-    from brightness_monitor.providers import UsageProvider
+    from llm_usage.config import Config
+    from llm_usage.providers import UsageProvider
 
 logger = get_logger()
 

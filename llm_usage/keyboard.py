@@ -1,6 +1,6 @@
-"""keyboard backlight output for brightness-monitor.
+"""keyboard backlight output for llm-usage.
 
-controls MacBook keyboard brightness to reflect Claude API usage:
+controls MacBook keyboard brightness to reflect LLM API usage:
   - steady brightness mapped to utilization percentage
   - pulse/breathing animation when running critically low
   - blink readout encoding remaining % as digit blink patterns
@@ -14,10 +14,10 @@ from typing import TYPE_CHECKING
 
 from prism.logging import get_logger
 
-from brightness_monitor.brightness import set_brightness
+from llm_usage.brightness import set_brightness
 
 if TYPE_CHECKING:
-    from brightness_monitor.config import KeyboardConfig
+    from llm_usage.config import KeyboardConfig
 
 logger = get_logger()
 

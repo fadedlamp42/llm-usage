@@ -1,28 +1,35 @@
-[build-system]
-requires = ["setuptools>=64"]
-build-backend = "setuptools.build_meta"
-
 [project]
-name = "brightness-monitor"
+name = "llm-usage"
 version = "0.1.0"
-description = "Sync MacBook keyboard brightness to Claude API usage limits"
-requires-python = ">=3.10"
+description = "track LLM CLI usage windows with ambient keyboard + voice feedback"
+authors = [
+    {name = "Peter Gomez", email = "fadedlamp42@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
 dependencies = [
-    "pyobjc-core>=10.0",
     "PyYAML>=6.0",
-    "prism-shared-python",  # local: pip install -e /path/to/prism-shared-python
+    "prism-shared-python",
 ]
 
-[project.optional-dependencies]
-dev = ["ruff>=0.15", "pre-commit>=4.0"]
+[tool.poetry.dependencies]
+prism-shared-python = {path = "../../../prism/repositories/prism-shared-python", develop = true}
 
-[project.scripts]
-brightness-monitor = "brightness_monitor.main:main"
+[tool.poetry.group.dev.dependencies]
+ruff = ">=0.15"
+pre-commit = ">=4.0"
+
+[tool.poetry.scripts]
+llm-usage = "llm_usage.main:main"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
 
 # -- ruff (linting + formatting) --
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py313"
 line-length = 99
 
 [tool.ruff.lint]
@@ -53,7 +60,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["brightness_monitor"]
+known-first-party = ["llm_usage"]
 
 [tool.ruff.format]
 quote-style = "double"

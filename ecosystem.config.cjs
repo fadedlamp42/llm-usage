@@ -1,10 +1,10 @@
-// pm2 ecosystem config for brightness-monitor
+// pm2 ecosystem config for llm-usage
 // usage: pm2 start ecosystem.config.cjs
 
 module.exports = {
   apps: [
     {
-      name: "brightness-monitor",
+      name: "llm-usage",
       script: "start.sh",
       cwd: __dirname,
       interpreter: "bash",

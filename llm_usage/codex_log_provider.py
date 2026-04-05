@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from prism.logging import get_logger
 
-from brightness_monitor.providers import UsageProvider
-from brightness_monitor.usage import UsageData, UsageWindow
+from llm_usage.providers import UsageProvider
+from llm_usage.usage import UsageData, UsageWindow
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -37,7 +37,7 @@ def _parse_reset_timestamp(value) -> datetime | None:
         return None
 
     if isinstance(value, (int, float)):
-        return datetime.fromtimestamp(float(value), tz=timezone.utc)
+        return datetime.fromtimestamp(float(value), tz=UTC)
 
     if isinstance(value, str):
         try:
@@ -73,7 +73,7 @@ class CodexLogUsageProvider(UsageProvider):
             )
 
         if self._latest_event_time is not None and self.max_staleness_seconds > 0:
-            age_seconds = (datetime.now(timezone.utc) - self._latest_event_time).total_seconds()
+            age_seconds = (datetime.now(UTC) - self._latest_event_time).total_seconds()
             if age_seconds > self.max_staleness_seconds:
                 logger.warning(
                     "codex usage data is stale",

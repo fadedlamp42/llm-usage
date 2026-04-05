@@ -12,14 +12,14 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from prism.logging import get_logger
 
 if TYPE_CHECKING:
-    from brightness_monitor.usage import UsageData
+    from llm_usage.usage import UsageData
 
 logger = get_logger()
 
@@ -100,7 +100,7 @@ def record_poll(
     provider_name: str,
 ) -> None:
     """insert one row per usage window for the current poll."""
-    now = datetime.now(tz=timezone.utc).isoformat()
+    now = datetime.now(tz=UTC).isoformat()
 
     rows = [
         (
@@ -218,7 +218,7 @@ def calculate_burn_rate(
     computes linear utilization rate, and projects forward to the
     reset time to estimate how many tokens will be left (or wasted).
     """
-    cutoff = datetime.now(tz=timezone.utc).isoformat()
+    cutoff = datetime.now(tz=UTC).isoformat()
     lookback_seconds = BURN_RATE_LOOKBACK_MINUTES * 60
 
     rows = connection.execute(

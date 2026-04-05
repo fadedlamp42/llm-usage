@@ -80,8 +80,7 @@ class UsageData:
 def _token_from_keychain() -> str | None:
     """try to pull the OAuth token from macOS Keychain.
 
-    # TODO: swap brightness-monitor to use prism.mac.keychain
-    # (swap complete — now delegates to prism.mac.keychain.read_json)
+    # delegates to prism.mac.keychain.read_json
 
     Claude Code stores credentials under the service name
     "Claude Code-credentials" as a JSON blob containing
@@ -140,7 +139,7 @@ def _make_api_request(url: str, token: str) -> dict:
             "Authorization": "Bearer %(token)s" % {"token": token},
             "Content-Type": "application/json",
             "anthropic-beta": "oauth-2025-04-20",
-            "User-Agent": "brightness-monitor/0.1.0",
+            "User-Agent": "llm-usage/0.1.0",
         },
     )
 

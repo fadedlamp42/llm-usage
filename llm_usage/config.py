@@ -1,4 +1,4 @@
-"""load and validate config.yaml for brightness-monitor.
+"""load and validate config.yaml for llm-usage.
 
 looks for config.yaml in the project root (next to pyproject.toml).
 missing keys fall back to built-in defaults.

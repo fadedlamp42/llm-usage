@@ -9,13 +9,13 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from prism.logging import get_logger
 
-from brightness_monitor.providers import UsageProvider
-from brightness_monitor.usage import AuthExpiredError, UsageData, UsageWindow
+from llm_usage.providers import UsageProvider
+from llm_usage.usage import AuthExpiredError, UsageData, UsageWindow
 
 logger = get_logger()
 
@@ -50,7 +50,7 @@ def _parse_reset_timestamp(value) -> datetime | None:
         return None
 
     if isinstance(value, (int, float)):
-        return datetime.fromtimestamp(float(value), tz=timezone.utc)
+        return datetime.fromtimestamp(float(value), tz=UTC)
 
     if isinstance(value, str):
         try:
@@ -301,7 +301,7 @@ class CodexApiUsageProvider(UsageProvider):
 
         headers = {
             "Authorization": "Bearer %(token)s" % {"token": self._access_token},
-            "User-Agent": "brightness-monitor/0.1.0",
+            "User-Agent": "llm-usage/0.1.0",
         }
         if self._account_id:
             headers["ChatGPT-Account-Id"] = self._account_id
@@ -355,7 +355,7 @@ class CodexApiUsageProvider(UsageProvider):
             data=refresh_payload,
             headers={
                 "Content-Type": "application/json",
-                "User-Agent": "brightness-monitor/0.1.0",
+                "User-Agent": "llm-usage/0.1.0",
             },
         )
 

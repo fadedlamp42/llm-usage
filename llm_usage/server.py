@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 from prism.logging import get_logger
 
-from brightness_monitor.storage import (
+from llm_usage.storage import (
     DEFAULT_DB_PATH,
     calculate_burn_rate,
 )

@@ -1,6 +1,6 @@
-sync keyboard brightness to ai usage windows
+track LLM CLI usage windows with ambient feedback: keyboard brightness, voice readouts, and an HTTP /status API for consumers like utop.
 
-darker = less remaining usage; reset to full brightness when the tracked window resets.
+darker keyboard = less remaining usage; resets to full brightness when the tracked window resets.
 
 ## providers
 

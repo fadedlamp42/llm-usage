@@ -1,4 +1,4 @@
-"""usage provider adapters for brightness-monitor.
+"""usage provider adapters for llm-usage.
 
 supports:
   - claude: polls anthropic oauth usage endpoint (existing behavior)
@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING
 
 from prism.logging import get_logger
 
-from brightness_monitor.auth import attempt_reauth
-from brightness_monitor.usage import (
+from llm_usage.auth import attempt_reauth
+from llm_usage.usage import (
     ProfileInfo,
     UsageData,
     fetch_profile,
@@ -24,7 +24,7 @@ from brightness_monitor.usage import (
 )
 
 if TYPE_CHECKING:
-    from brightness_monitor.config import Config
+    from llm_usage.config import Config
 
 logger = get_logger()
 
@@ -94,7 +94,7 @@ def create_usage_provider(config: Config, token_override: str | None = None) -> 
         return ClaudeUsageProvider(token_override=token_override)
 
     if provider_name in {"codex", "codex_api"}:
-        from brightness_monitor.codex_api_provider import CodexApiUsageProvider
+        from llm_usage.codex_api_provider import CodexApiUsageProvider
 
         codex_config = config.provider.codex
         return CodexApiUsageProvider(
@@ -108,7 +108,7 @@ def create_usage_provider(config: Config, token_override: str | None = None) -> 
         )
 
     if provider_name == "codex_logs":
-        from brightness_monitor.codex_log_provider import CodexLogUsageProvider
+        from llm_usage.codex_log_provider import CodexLogUsageProvider
 
         if token_override:
             logger.warning("ignoring --token for codex_logs provider")

@@ -1,4 +1,4 @@
-"""voice output for brightness-monitor via prism.mac.speech.
+"""voice output for llm-usage via prism.mac.speech.
 
 three modes:
   - hourly status: remaining %, reset time, and pace observation via naturalized chatterbox
@@ -19,8 +19,8 @@ from prism.mac.speech import configure as _configure_speech
 from prism.mac.speech import say as _prism_say
 
 if TYPE_CHECKING:
-    from brightness_monitor.storage import AccountUtilization, BurnRate
-    from brightness_monitor.usage import UsageData
+    from llm_usage.storage import AccountUtilization, BurnRate
+    from llm_usage.usage import UsageData
 
 logger = get_logger()
 

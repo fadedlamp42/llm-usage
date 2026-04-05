@@ -32,4 +32,6 @@ configure provider and tracked window in `config.yaml`.
 
 ## done
 
+- [x] rename brightness-monitor to llm-usage; migrate setuptools+uv to poetry; fix mac pyobjc propagation in prism-shared-python - `ses_2a4924e52ffeGhOPXjqH008YDR`
+
 ## cancelled

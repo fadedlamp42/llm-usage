@@ -56,6 +56,21 @@ logger = get_logger()
 AUTH_RETRY_INTERVAL_SECONDS = 300
 
 
+def _crossed_limit_thresholds(
+    minutes_until_limit: float | None,
+    thresholds: list[float],
+) -> int:
+    """count how many minute thresholds have been crossed.
+
+    thresholds like [60, 30, 15, 5] represent descending minute marks.
+    returns the number of thresholds at or above the current minutes_until_limit.
+    returns 0 when no limit is projected (minutes_until_limit is None).
+    """
+    if minutes_until_limit is None:
+        return 0
+    return sum(1 for t in thresholds if minutes_until_limit <= t)
+
+
 class ShutdownHandler:
     """saves original keyboard state and restores it on exit."""
 
@@ -231,6 +246,7 @@ def run_daemon(
         logger.info("took control of keyboard brightness")
 
     last_bucket: int | None = None
+    last_crossed_limit_count: int = 0  # how many minute thresholds crossed last poll
     last_fetch_time: float = 0.0
     cached_usage: UsageData | None = None
     auth_expired = False
@@ -369,6 +385,17 @@ def run_daemon(
                 if not over_threshold:
                     switch_suggested = False
 
+            # compute burn rate every poll — needed both for speech content
+            # and for evaluating time-based limit warning triggers
+            burn_rate = None
+            if config.output.speech:
+                burn_rate = calculate_burn_rate(
+                    db,
+                    provider.provider_name,
+                    tracked.name,
+                    tracked.resets_at,
+                )
+
             # check if we crossed a percentage threshold since last readout
             current_bucket = _readout_bucket(
                 remaining,
@@ -382,20 +409,36 @@ def run_daemon(
             # first poll always fires a readout if within threshold
             first_poll = last_bucket is None and remaining <= keyboard.readout.threshold
 
-            should_readout = crossed_threshold or first_poll or readout_requested
+            # time-based limit warnings — when projected to exceed 100%,
+            # fire a readout as estimated minutes-to-limit crosses each
+            # configured threshold (e.g. 60, 30, 15, 5 minutes)
+            crossed_limit_warning = False
+            minutes_until_limit = burn_rate.minutes_until_limit if burn_rate else None
+            current_crossed_limit_count = _crossed_limit_thresholds(
+                minutes_until_limit,
+                config.limit_warnings.minute_thresholds,
+            )
+            if current_crossed_limit_count > last_crossed_limit_count:
+                crossed_limit_warning = True
+                logger.info(
+                    "limit warning threshold crossed",
+                    minutes_until_limit=round(minutes_until_limit, 1)
+                    if minutes_until_limit
+                    else None,
+                    thresholds_crossed=current_crossed_limit_count,
+                )
+            last_crossed_limit_count = current_crossed_limit_count
+
+            should_readout = (
+                crossed_threshold or first_poll or crossed_limit_warning or readout_requested
+            )
             readout_requested = False
 
             if should_readout:
                 clamped = max(0, min(99, int(remaining)))
 
                 # hourly status with pace observation via naturalized chatterbox
-                if config.output.speech:
-                    burn_rate = calculate_burn_rate(
-                        db,
-                        provider.provider_name,
-                        tracked.name,
-                        tracked.resets_at,
-                    )
+                if config.output.speech and burn_rate:
                     speak_hourly_status(usage, burn_rate)
 
                 # blink readout via keyboard backlight

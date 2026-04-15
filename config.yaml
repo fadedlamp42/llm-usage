@@ -52,6 +52,13 @@ window: "five_hour"
 # how often to poll the configured provider
 poll_interval: 120
 
+# time-based warnings when on track to exceed the limit before reset.
+# when the burn rate projects hitting 100% utilization, these minute
+# thresholds trigger voice readouts as the estimated time-to-limit
+# crosses each value (descending). only fires when projected to exceed.
+limit_warnings:
+  minute_thresholds: [60, 30, 15, 5]
+
 # sttts inter-service coordination
 # speech announcements wait indefinitely for mic idle before speaking,
 # polled via GET /mic-status on the relay. speech is never forced

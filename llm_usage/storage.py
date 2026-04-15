@@ -148,6 +148,11 @@ class BurnRate:
     sample_minutes: float
     """how many minutes of history the rate was calculated from."""
 
+    minutes_until_limit: float | None = None
+    """estimated minutes until utilization hits 100%. None if not burning
+    toward the limit (projected to stay under 100%, rate is zero/negative,
+    or insufficient data)."""
+
 
 @dataclass
 class AccountUtilization:
@@ -271,9 +276,17 @@ def calculate_burn_rate(
         projected_utilization = last_util + (utilization_per_hour * hours_until_reset)
         projected_remaining_at_reset = 100.0 - projected_utilization
 
+    # estimate minutes until hitting 100% utilization — only meaningful
+    # when actively burning toward the limit (positive rate, not already past it)
+    minutes_until_limit = None
+    if utilization_per_hour > 0 and last_util < 100.0:
+        hours_to_limit = (100.0 - last_util) / utilization_per_hour
+        minutes_until_limit = hours_to_limit * 60
+
     return BurnRate(
         utilization_per_hour=utilization_per_hour,
         projected_remaining_at_reset=projected_remaining_at_reset,
         hours_until_reset=hours_until_reset,
         sample_minutes=sample_minutes,
+        minutes_until_limit=minutes_until_limit,
     )

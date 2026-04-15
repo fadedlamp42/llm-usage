@@ -97,6 +97,7 @@ def _build_status_from_db(
                 "projected_remaining_at_reset": burn.projected_remaining_at_reset,
                 "hours_until_reset": burn.hours_until_reset,
                 "sample_minutes": burn.sample_minutes,
+                "minutes_until_limit": burn.minutes_until_limit,
             }
 
         # recent utilization for sparklines
@@ -165,8 +166,151 @@ def _build_status_from_db(
     }
 
 
+# ANSI escapes for SwiftBar title color-coding by urgency.
+# the title text is the minutes-to-limit (or ∞), colored to
+# signal how urgent the situation is at a glance.
+_ANSI_WHITE = "\033[37m"
+_ANSI_YELLOW = "\033[33m"
+_ANSI_ORANGE = "\033[38;5;208m"
+_ANSI_RED = "\033[31m"
+_ANSI_RESET = "\033[0m"
+
+
+def _urgency_color(minutes_until_limit: float | None) -> tuple[str, str]:
+    """pick ANSI escape and SF Symbol hex color based on minutes to limit.
+
+    returns (ansi_escape, hex_color) for the current urgency level:
+      no limit projected  →  white / dim gray
+      >= 60 minutes       →  white / dim gray
+      30-60 minutes       →  yellow
+      10-30 minutes       →  orange
+      < 10 minutes        →  red
+    """
+    if minutes_until_limit is None or minutes_until_limit >= 60:
+        return _ANSI_WHITE, "#999999"
+    if minutes_until_limit >= 30:
+        return _ANSI_YELLOW, "#d4a72c"
+    if minutes_until_limit >= 10:
+        return _ANSI_ORANGE, "#ff9500"
+    return _ANSI_RED, "#ff3b30"
+
+
+def _format_bar_title_text(minutes_until_limit: float | None) -> str:
+    """format the minutes-to-limit as a compact menu bar string.
+
+    returns "∞" when not projected to hit the limit, or a
+    human-friendly duration like "47m", "1h12m", "8m".
+    """
+    if minutes_until_limit is None:
+        return "∞"
+    if minutes_until_limit < 1:
+        return "<1m"
+    total_minutes = int(minutes_until_limit)
+    if total_minutes >= 60:
+        hours = total_minutes // 60
+        remaining_minutes = total_minutes % 60
+        if remaining_minutes == 0:
+            return "%(h)dh" % {"h": hours}
+        return "%(h)dh%(m)dm" % {"h": hours, "m": remaining_minutes}
+    return "%(m)dm" % {"m": total_minutes}
+
+
+def _render_bar_status(
+    db_path: Path,
+    provider_name: str,
+    tracked_window: str,
+    poll_interval: int,
+) -> str:
+    """render SwiftBar-formatted output for the menu bar plugin.
+
+    shows minutes until hitting the usage limit, color-coded by urgency.
+    ∞ (white) when comfortably under, escalating through yellow/orange/red
+    as the limit approaches.
+    """
+    from prism.mac.swiftbar import item, refresh_item, separator, title
+
+    status = _query_status(db_path, provider_name, tracked_window, poll_interval)
+    if "error" in status:
+        from prism.mac.swiftbar import error_dropdown, error_title
+
+        return error_title() + "\n" + error_dropdown(status["error"])
+
+    # find the tracked window's burn rate
+    minutes_until_limit = None
+    tracked_utilization = None
+    tracked_resets_at = None
+    projected_remaining = None
+
+    for window in status["windows"]:
+        if window["name"] == tracked_window:
+            tracked_utilization = window["utilization"]
+            tracked_resets_at = window["resets_at"]
+            burn = window.get("burn_rate")
+            if burn:
+                minutes_until_limit = burn.get("minutes_until_limit")
+                projected_remaining = burn.get("projected_remaining_at_reset")
+            break
+
+    # only show minutes-to-limit when actually projected to exceed
+    will_exceed = projected_remaining is not None and projected_remaining < 0
+    effective_minutes = minutes_until_limit if will_exceed else None
+
+    ansi_color, hex_color = _urgency_color(effective_minutes)
+    title_text = _format_bar_title_text(effective_minutes)
+    colored_title = "%(ansi)s%(text)s%(reset)s" % {
+        "ansi": ansi_color,
+        "text": title_text,
+        "reset": _ANSI_RESET,
+    }
+
+    lines: list[str] = []
+    lines.append(title(colored_title, ansi=True))
+    lines.append(separator())
+
+    # utilization line
+    if tracked_utilization is not None:
+        lines.append(
+            item(
+                "%(util).0f%% used" % {"util": tracked_utilization},
+                color="#ffffff",
+                size=13,
+            )
+        )
+
+    # minutes-to-limit or comfortable status
+    if will_exceed and minutes_until_limit is not None:
+        lines.append(
+            item(
+                "limit in %(text)s" % {"text": _format_bar_title_text(minutes_until_limit)},
+                color=hex_color,
+                size=13,
+            )
+        )
+    else:
+        lines.append(item("on track to stay under limit", color="#999999", size=13))
+
+    # reset time
+    if tracked_resets_at:
+        lines.append(
+            item(
+                "resets %(time)s" % {"time": tracked_resets_at},
+                color="#666666",
+                size=11,
+            )
+        )
+
+    # account
+    if status.get("account_email"):
+        lines.append(item(status["account_email"], color="#666666", size=11))
+
+    lines.append(separator())
+    lines.append(refresh_item())
+
+    return "\n".join(lines)
+
+
 class _StatusHandler(BaseHTTPRequestHandler):
-    """HTTP handler for /status and /health endpoints."""
+    """HTTP handler for /status, /bar-status, and /health endpoints."""
 
     db_path: Path
     provider_name: str
@@ -198,6 +342,22 @@ class _StatusHandler(BaseHTTPRequestHandler):
 
             body = json.dumps(status, default=str).encode()
             self._respond(200, "application/json", body, cors=True)
+            return
+
+        if self.path == "/bar-status":
+            try:
+                body = _render_bar_status(
+                    self.db_path,
+                    self.provider_name,
+                    self.tracked_window,
+                    self.poll_interval,
+                ).encode()
+                self._respond(200, "text/plain; charset=utf-8", body)
+            except Exception as error:
+                from prism.mac.swiftbar import error_dropdown, error_title
+
+                body = (error_title() + "\n" + error_dropdown(str(error))).encode()
+                self._respond(200, "text/plain; charset=utf-8", body)
             return
 
         self.send_response(404)

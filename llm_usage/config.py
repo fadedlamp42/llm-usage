@@ -82,12 +82,32 @@ class ProviderConfig:
 
 
 @dataclass
+class LimitWarningsConfig:
+    """time-based warnings when projected to exceed 100% utilization.
+
+    when the burn rate projects that utilization will hit the limit
+    before the window resets, these minute thresholds trigger voice
+    readouts as the estimated time-to-limit crosses each value.
+    only active when on track to exceed — otherwise the standard
+    percentage-based readout system handles announcements.
+    """
+
+    minute_thresholds: list[float] = field(
+        default_factory=lambda: [60, 30, 15, 5],
+    )
+    """descending list of minutes-to-limit that trigger a readout.
+    when the estimated minutes until 100% drops below each value
+    for the first time, a voice announcement fires."""
+
+
+@dataclass
 class Config:
     window: str = "five_hour"
     poll_interval: int = 60
     accounts: list[str] = field(default_factory=list)
     switch_threshold: float = 90.0
     status_port: int = 8387
+    limit_warnings: LimitWarningsConfig = field(default_factory=LimitWarningsConfig)
     provider: ProviderConfig = field(default_factory=ProviderConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     sttts: StttsConfig = field(default_factory=StttsConfig)
@@ -141,15 +161,20 @@ def load_config(path: Path | None = None) -> Config:
     provider = _parse_nested_dataclass(ProviderConfig, provider_raw)
     provider.codex = _parse_nested_dataclass(CodexProviderConfig, codex_raw)
 
+    # parse limit_warnings section
+    limit_warnings_raw = raw.pop("limit_warnings", {}) or {}
+    limit_warnings = _parse_nested_dataclass(LimitWarningsConfig, limit_warnings_raw)
+
     config = Config(
         **{
             key: raw[key]
             for key in Config.__dataclass_fields__
-            if key in raw and key not in ("output", "sttts", "provider")
+            if key in raw and key not in ("output", "sttts", "provider", "limit_warnings")
         }
     )
     config.provider = provider
     config.output = output
     config.sttts = sttts
+    config.limit_warnings = limit_warnings
 
     return config

@@ -63,6 +63,23 @@ def _format_relative_time(target: datetime | None) -> str:
     return "in %d days" % int(days)
 
 
+def _format_minutes_until_limit(minutes: float) -> str:
+    """format estimated minutes until 100% utilization as natural speech.
+
+    produces phrases like "hitting the limit in 47 minutes",
+    "hitting the limit in about an hour", "hitting the limit any moment".
+    """
+    if minutes < 1:
+        return "hitting the limit any moment"
+    if minutes < 2:
+        return "hitting the limit in about a minute"
+    if minutes < 60:
+        return "hitting the limit in %d minutes" % int(minutes)
+    if minutes < 90:
+        return "hitting the limit in about an hour"
+    return "hitting the limit in about %d hours" % round(minutes / 60)
+
+
 def format_voice_status(usage: UsageData) -> str:
     """format a thorough spoken status update for cute-say.
 
@@ -136,14 +153,20 @@ def speak_hourly_status(usage: UsageData, burn_rate: BurnRate) -> None:
 
     projected = burn_rate.projected_remaining_at_reset
     if projected is not None:
-        projected_used = max(0, min(100, 100 - int(projected)))
-        if possessive:
-            parts.append(
-                "to use %(used)d percent of %(name)s window"
-                % {"used": projected_used, "name": possessive}
-            )
+        will_exceed = projected < 0
+        if will_exceed and burn_rate.minutes_until_limit is not None:
+            # on track to blow past the limit — report time-to-wall
+            parts.append(_format_minutes_until_limit(burn_rate.minutes_until_limit))
         else:
-            parts.append("to use %d percent of the window" % projected_used)
+            # comfortable pace — report projected utilization at reset
+            projected_used = max(0, min(100, 100 - int(projected)))
+            if possessive:
+                parts.append(
+                    "to use %(used)d percent of %(name)s window"
+                    % {"used": projected_used, "name": possessive}
+                )
+            else:
+                parts.append("to use %d percent of the window" % projected_used)
 
     # warn when the weekly window is getting tight
     seven_day = windows_by_name.get("seven_day")

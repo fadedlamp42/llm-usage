@@ -216,24 +216,40 @@ def calculate_burn_rate(
     provider_name: str,
     window_name: str,
     resets_at: datetime | None,
+    account_email: str | None = None,
 ) -> BurnRate:
     """calculate consumption rate from recent poll history.
 
     looks at the last 30 minutes of polls for the given window,
     computes linear utilization rate, and projects forward to the
     reset time to estimate how many tokens will be left (or wasted).
+    scoped to the active account so usage from a previous account
+    (pre-switch) doesn't pollute the rate.
     """
     cutoff = datetime.now(tz=UTC).isoformat()
     lookback_seconds = BURN_RATE_LOOKBACK_MINUTES * 60
 
-    rows = connection.execute(
-        "SELECT polled_at, utilization FROM usage_polls "
-        "WHERE provider = ? "
-        "AND window_name = ? "
-        "AND polled_at > datetime(?, '-%d seconds') "
-        "ORDER BY polled_at ASC" % lookback_seconds,
-        (provider_name, window_name, cutoff),
-    ).fetchall()
+    # scope to active account when known, so a mid-session account switch
+    # doesn't mix two different utilization curves into the regression
+    if account_email:
+        rows = connection.execute(
+            "SELECT polled_at, utilization FROM usage_polls "
+            "WHERE provider = ? "
+            "AND window_name = ? "
+            "AND account_email = ? "
+            "AND polled_at > datetime(?, '-%d seconds') "
+            "ORDER BY polled_at ASC" % lookback_seconds,
+            (provider_name, window_name, account_email, cutoff),
+        ).fetchall()
+    else:
+        rows = connection.execute(
+            "SELECT polled_at, utilization FROM usage_polls "
+            "WHERE provider = ? "
+            "AND window_name = ? "
+            "AND polled_at > datetime(?, '-%d seconds') "
+            "ORDER BY polled_at ASC" % lookback_seconds,
+            (provider_name, window_name, cutoff),
+        ).fetchall()
 
     # compute hours until reset
     hours_until_reset = None
@@ -250,16 +266,13 @@ def calculate_burn_rate(
             sample_minutes=0.0,
         )
 
-    # use first and last data points for rate
+    # least-squares linear fit across all data points for a stable rate.
+    # x-axis is hours since the first poll, y-axis is utilization %.
     first_time = datetime.fromisoformat(rows[0][0])
     last_time = datetime.fromisoformat(rows[-1][0])
-    first_util = rows[0][1]
-    last_util = rows[-1][1]
-
-    elapsed_hours = (last_time - first_time).total_seconds() / 3600
     sample_minutes = (last_time - first_time).total_seconds() / 60
 
-    if elapsed_hours < 0.001:
+    if sample_minutes < 0.06:
         # timestamps too close together, can't compute rate
         return BurnRate(
             utilization_per_hour=None,
@@ -268,20 +281,55 @@ def calculate_burn_rate(
             sample_minutes=sample_minutes,
         )
 
-    utilization_per_hour = (last_util - first_util) / elapsed_hours
+    n = len(rows)
+    hours_from_start = []
+    utilizations = []
+    for timestamp_str, utilization in rows:
+        t = datetime.fromisoformat(timestamp_str)
+        hours_from_start.append((t - first_time).total_seconds() / 3600)
+        utilizations.append(utilization)
 
-    # project forward to reset time
+    # ordinary least-squares: slope = (n*Σxy - Σx*Σy) / (n*Σx² - (Σx)²)
+    sum_x = sum(hours_from_start)
+    sum_y = sum(utilizations)
+    sum_xy = sum(x * y for x, y in zip(hours_from_start, utilizations, strict=True))
+    sum_x2 = sum(x * x for x in hours_from_start)
+
+    denominator = n * sum_x2 - sum_x * sum_x
+    if abs(denominator) < 1e-12:
+        return BurnRate(
+            utilization_per_hour=None,
+            projected_remaining_at_reset=None,
+            hours_until_reset=hours_until_reset,
+            sample_minutes=sample_minutes,
+        )
+
+    utilization_per_hour = (n * sum_xy - sum_x * sum_y) / denominator
+    # intercept at first_time: y = intercept + slope * x
+    intercept = (sum_y - utilization_per_hour * sum_x) / n
+
+    # current fitted value (at the last data point's time)
+    last_hours = hours_from_start[-1]
+    fitted_now = intercept + utilization_per_hour * last_hours
+
+    # project forward to reset time — utilization can only accumulate,
+    # so clamp the projection to at least current usage even if the
+    # observed rate is negative (e.g. old usage rolling off the window)
+    last_util = utilizations[-1]
     projected_remaining_at_reset = None
     if hours_until_reset is not None:
-        projected_utilization = last_util + (utilization_per_hour * hours_until_reset)
+        projected_utilization = max(
+            last_util,
+            fitted_now + (utilization_per_hour * hours_until_reset),
+        )
         projected_remaining_at_reset = 100.0 - projected_utilization
 
     # estimate minutes until hitting 100% utilization — only meaningful
     # when actively burning toward the limit (positive rate, not already past it)
     minutes_until_limit = None
     if utilization_per_hour > 0 and last_util < 100.0:
-        hours_to_limit = (100.0 - last_util) / utilization_per_hour
-        minutes_until_limit = hours_to_limit * 60
+        hours_to_limit = (100.0 - fitted_now) / utilization_per_hour
+        minutes_until_limit = max(0.0, hours_to_limit * 60)
 
     return BurnRate(
         utilization_per_hour=utilization_per_hour,

@@ -33,7 +33,7 @@ def configure(sttts_relay_url: str | None = None) -> None:
 def _format_relative_time(target: datetime | None) -> str:
     """format a datetime as natural spoken relative time.
 
-    returns phrases like "in about an hour", "in 3 days", "tomorrow".
+    returns precise phrases like "in 1 hour 3 minutes", "in 3 days", "tomorrow".
     returns empty string if target is None.
     """
     if target is None:
@@ -45,18 +45,21 @@ def _format_relative_time(target: datetime | None) -> str:
     if total_seconds <= 0:
         return "any moment now"
 
-    minutes = total_seconds / 60
-    hours = total_seconds / 3600
+    total_minutes = int(total_seconds / 60)
+    hours = total_minutes // 60
+    remaining_minutes = total_minutes % 60
     days = total_seconds / 86400
 
-    if minutes < 2:
+    if total_minutes < 2:
         return "in about a minute"
     if hours < 1:
-        return "in %d minutes" % int(minutes)
-    if hours < 2:
-        return "in about an hour"
+        return "in %d minutes" % total_minutes
     if hours < 24:
-        return "in %d hours" % int(hours)
+        if remaining_minutes == 0:
+            return "in %d hours" % hours if hours > 1 else "in 1 hour"
+        if hours == 1:
+            return "in 1 hour %d minutes" % remaining_minutes
+        return "in %d hours %d minutes" % (hours, remaining_minutes)
     if days < 2:
         return "tomorrow"
 
@@ -66,18 +69,25 @@ def _format_relative_time(target: datetime | None) -> str:
 def _format_minutes_until_limit(minutes: float) -> str:
     """format estimated minutes until 100% utilization as natural speech.
 
-    produces phrases like "hitting the limit in 47 minutes",
-    "hitting the limit in about an hour", "hitting the limit any moment".
+    produces precise phrases like "hitting the limit in 1 hour 47 minutes",
+    "hitting the limit in 23 minutes", "hitting the limit any moment".
     """
     if minutes < 1:
         return "hitting the limit any moment"
     if minutes < 2:
         return "hitting the limit in about a minute"
-    if minutes < 60:
-        return "hitting the limit in %d minutes" % int(minutes)
-    if minutes < 90:
-        return "hitting the limit in about an hour"
-    return "hitting the limit in about %d hours" % round(minutes / 60)
+    total_minutes = int(minutes)
+    hours = total_minutes // 60
+    remaining_minutes = total_minutes % 60
+    if hours < 1:
+        return "hitting the limit in %d minutes" % total_minutes
+    if remaining_minutes == 0:
+        return (
+            "hitting the limit in %d hours" % hours if hours > 1 else "hitting the limit in 1 hour"
+        )
+    if hours == 1:
+        return "hitting the limit in 1 hour %d minutes" % remaining_minutes
+    return "hitting the limit in %d hours %d minutes" % (hours, remaining_minutes)
 
 
 def format_voice_status(usage: UsageData) -> str:

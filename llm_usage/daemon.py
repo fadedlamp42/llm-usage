@@ -394,6 +394,7 @@ def run_daemon(
                     provider.provider_name,
                     tracked.name,
                     tracked.resets_at,
+                    account_email=usage.account_email,
                 )
 
             # check if we crossed a percentage threshold since last readout

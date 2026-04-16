@@ -89,7 +89,13 @@ def _build_status_from_db(
                 resets_at = datetime.fromisoformat(resets_at_str)
 
         # burn rate from storage module (same logic the daemon uses for speech)
-        burn = calculate_burn_rate(connection, provider_name, window_name, resets_at)
+        burn = calculate_burn_rate(
+            connection,
+            provider_name,
+            window_name,
+            resets_at,
+            account_email=account_email,
+        )
         burn_dict = None
         if burn is not None:
             burn_dict = {
@@ -167,9 +173,10 @@ def _build_status_from_db(
 
 
 # ANSI escapes for SwiftBar title color-coding by urgency.
-# the title text is the minutes-to-limit (or ∞), colored to
-# signal how urgent the situation is at a glance.
+# the title text is remaining % (comfortable) or countdown (exceeding),
+# colored to signal how urgent the situation is at a glance.
 _ANSI_WHITE = "\033[37m"
+_ANSI_GREEN = "\033[32m"
 _ANSI_YELLOW = "\033[33m"
 _ANSI_ORANGE = "\033[38;5;208m"
 _ANSI_RED = "\033[31m"
@@ -195,14 +202,11 @@ def _urgency_color(minutes_until_limit: float | None) -> tuple[str, str]:
     return _ANSI_RED, "#ff3b30"
 
 
-def _format_bar_title_text(minutes_until_limit: float | None) -> str:
-    """format the minutes-to-limit as a compact menu bar string.
+def _format_countdown_text(minutes_until_limit: float) -> str:
+    """format minutes-to-limit as a compact menu bar countdown.
 
-    returns "∞" when not projected to hit the limit, or a
-    human-friendly duration like "47m", "1h12m", "8m".
+    produces human-friendly durations like "47m", "1h12m", "8m", "<1m".
     """
-    if minutes_until_limit is None:
-        return "∞"
     if minutes_until_limit < 1:
         return "<1m"
     total_minutes = int(minutes_until_limit)
@@ -215,6 +219,61 @@ def _format_bar_title_text(minutes_until_limit: float | None) -> str:
     return "%(m)dm" % {"m": total_minutes}
 
 
+def _projection_color(projected_utilization: float) -> str:
+    """ANSI color for projected usage normalized to accounts.
+
+    green at ≤1 account (using one account's worth or less),
+    yellow at ≤2, orange at ≤3, red at >3 (only 3 accounts exist).
+    """
+    accounts = projected_utilization / 100.0
+    if accounts <= 1.0:
+        return _ANSI_GREEN
+    if accounts <= 2.0:
+        return _ANSI_YELLOW
+    if accounts <= 3.0:
+        return _ANSI_ORANGE
+    return _ANSI_RED
+
+
+def _format_bar_title_text(
+    minutes_until_limit: float | None,
+    utilization: float | None,
+    projected_remaining: float | None,
+) -> str:
+    """format the menu bar title: usage percentages with optional countdown.
+
+    primary element is current→projected usage: "42→67%".
+    when projected to exceed 100%, appends the countdown: "16→133% (3h4m)".
+    the countdown only appears when it's actionable (will hit the limit).
+
+    examples:
+      "42→67%"          — comfortable, heading for 67%
+      "16→133% (3h4m)"  — exceeding, 3h4m until hitting the wall
+      "42%"             — no projection data yet
+    """
+    if utilization is None:
+        return "∞"
+
+    used = min(100, int(utilization))
+
+    if projected_remaining is not None:
+        projected_used = max(used, int(100.0 - projected_remaining))
+        proj_color = _projection_color(projected_used)
+        countdown_suffix = ""
+        if projected_used > 100 and minutes_until_limit is not None:
+            countdown_suffix = " (%(t)s)" % {"t": _format_countdown_text(minutes_until_limit)}
+        return "%(w)s%(u)d→%(c)s%(p)d%%%(cd)s%(r)s" % {
+            "w": _ANSI_WHITE,
+            "u": used,
+            "c": proj_color,
+            "p": projected_used,
+            "cd": countdown_suffix,
+            "r": _ANSI_RESET,
+        }
+
+    return "%(w)s%(u)d%%%(r)s" % {"w": _ANSI_WHITE, "u": used, "r": _ANSI_RESET}
+
+
 def _render_bar_status(
     db_path: Path,
     provider_name: str,
@@ -223,8 +282,9 @@ def _render_bar_status(
 ) -> str:
     """render SwiftBar-formatted output for the menu bar plugin.
 
-    shows minutes until hitting the usage limit, color-coded by urgency.
-    ∞ (white) when comfortably under, escalating through yellow/orange/red
+    shows remaining capacity % when comfortable (e.g. "72%"), switching to
+    a countdown when projected to exceed (e.g. "47m"). color-coded by
+    urgency: white/gray when comfortable, escalating through yellow/orange/red
     as the limit approaches.
     """
     from prism.mac.swiftbar import item, refresh_item, separator, title
@@ -255,13 +315,10 @@ def _render_bar_status(
     will_exceed = projected_remaining is not None and projected_remaining < 0
     effective_minutes = minutes_until_limit if will_exceed else None
 
-    ansi_color, hex_color = _urgency_color(effective_minutes)
-    title_text = _format_bar_title_text(effective_minutes)
-    colored_title = "%(ansi)s%(text)s%(reset)s" % {
-        "ansi": ansi_color,
-        "text": title_text,
-        "reset": _ANSI_RESET,
-    }
+    _unused, hex_color = _urgency_color(effective_minutes)
+    colored_title = _format_bar_title_text(
+        effective_minutes, tracked_utilization, projected_remaining
+    )
 
     lines: list[str] = []
     lines.append(title(colored_title, ansi=True))
@@ -281,7 +338,7 @@ def _render_bar_status(
     if will_exceed and minutes_until_limit is not None:
         lines.append(
             item(
-                "limit in %(text)s" % {"text": _format_bar_title_text(minutes_until_limit)},
+                "limit in %(text)s" % {"text": _format_countdown_text(minutes_until_limit)},
                 color=hex_color,
                 size=13,
             )

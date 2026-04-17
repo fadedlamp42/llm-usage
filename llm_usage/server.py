@@ -11,7 +11,7 @@ import contextlib
 import json
 import sqlite3
 import threading
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import TYPE_CHECKING
 
@@ -130,7 +130,11 @@ def _build_status_from_db(
             most_constrained_name = window_name
 
     # historical account utilization — latest poll per (account, window)
-    # from the last 12 hours, so utop can show all accounts at a glance
+    # from the last 12 hours, so utop can show all accounts at a glance.
+    # compute cutoff in Python so the string comparison is isoformat-to-isoformat
+    # (SQLite's datetime() returns space-separated format which doesn't compare
+    # correctly against isoformat T-separated timestamps in polled_at).
+    account_cutoff = (datetime.now(tz=UTC) - timedelta(hours=12)).isoformat()
     account_rows = connection.execute(
         "SELECT u.account_email, u.window_name, u.utilization, u.remaining, u.polled_at "
         "FROM usage_polls u "
@@ -138,13 +142,14 @@ def _build_status_from_db(
         "  SELECT account_email, window_name, MAX(polled_at) as max_polled "
         "  FROM usage_polls "
         "  WHERE account_email IS NOT NULL AND account_email != '' "
-        "    AND polled_at > datetime('now', '-12 hours') "
+        "    AND polled_at > ? "
         "  GROUP BY account_email, window_name"
         ") latest "
         "ON u.account_email = latest.account_email "
         "  AND u.window_name = latest.window_name "
         "  AND u.polled_at = latest.max_polled "
-        "ORDER BY u.account_email, u.window_name"
+        "ORDER BY u.account_email, u.window_name",
+        (account_cutoff,),
     ).fetchall()
 
     accounts = [

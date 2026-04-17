@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -205,7 +205,7 @@ def get_alternative_account_utilizations(
 
 
 # how far back to look for burn rate calculation
-BURN_RATE_LOOKBACK_MINUTES = 30
+BURN_RATE_LOOKBACK_MINUTES = 15
 
 # minimum data points needed to calculate a meaningful rate
 BURN_RATE_MINIMUM_POLLS = 3
@@ -226,8 +226,12 @@ def calculate_burn_rate(
     scoped to the active account so usage from a previous account
     (pre-switch) doesn't pollute the rate.
     """
-    cutoff = datetime.now(tz=UTC).isoformat()
-    lookback_seconds = BURN_RATE_LOOKBACK_MINUTES * 60
+    # compute the lookback cutoff in Python so the comparison is between
+    # two isoformat strings. SQLite's datetime() returns canonical format
+    # (space-separated) which doesn't compare correctly against isoformat
+    # timestamps (T-separated) stored in polled_at.
+    now = datetime.now(tz=UTC)
+    lookback_cutoff = (now - timedelta(minutes=BURN_RATE_LOOKBACK_MINUTES)).isoformat()
 
     # scope to active account when known, so a mid-session account switch
     # doesn't mix two different utilization curves into the regression
@@ -237,18 +241,18 @@ def calculate_burn_rate(
             "WHERE provider = ? "
             "AND window_name = ? "
             "AND account_email = ? "
-            "AND polled_at > datetime(?, '-%d seconds') "
-            "ORDER BY polled_at ASC" % lookback_seconds,
-            (provider_name, window_name, account_email, cutoff),
+            "AND polled_at > ? "
+            "ORDER BY polled_at ASC",
+            (provider_name, window_name, account_email, lookback_cutoff),
         ).fetchall()
     else:
         rows = connection.execute(
             "SELECT polled_at, utilization FROM usage_polls "
             "WHERE provider = ? "
             "AND window_name = ? "
-            "AND polled_at > datetime(?, '-%d seconds') "
-            "ORDER BY polled_at ASC" % lookback_seconds,
-            (provider_name, window_name, cutoff),
+            "AND polled_at > ? "
+            "ORDER BY polled_at ASC",
+            (provider_name, window_name, lookback_cutoff),
         ).fetchall()
 
     # compute hours until reset

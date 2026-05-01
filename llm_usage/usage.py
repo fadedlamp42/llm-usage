@@ -21,7 +21,7 @@ import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 from prism.logging import get_logger
 from prism.mac.keychain import read_json as _read_keychain_json
@@ -75,6 +75,7 @@ class UsageData:
     most_constrained: UsageWindow
     extra_usage: ExtraUsage | None = None
     account_email: str | None = None
+    raw_response: dict | None = None  # raw API payload, kept for debugging unexpected shapes
 
 
 def _token_from_keychain() -> str | None:
@@ -174,6 +175,60 @@ def _is_usage_window(value: object) -> bool:
     return "is_enabled" not in value
 
 
+def resolve_tracked_window(
+    windows: list[UsageWindow],
+    configured: str,
+) -> UsageWindow:
+    """pick which window to track for status, speech, and threshold checks.
+
+    prefers the configured window when present in the API response. falls back
+    to most-constrained otherwise — this handles credit-based / enterprise
+    plans where standard rate-limit windows are not returned and the
+    synthesized monthly_credits window takes their place.
+
+    callers can rely on this returning a window deterministically; an empty
+    windows list is impossible by the time we get here (fetch_usage raises).
+    """
+    if configured != "most_constrained":
+        for window in windows:
+            if window.name == configured:
+                return window
+    return max(windows, key=lambda w: w.utilization)
+
+
+def _next_month_first_utc(now: datetime) -> datetime:
+    """next calendar-month boundary at 00:00:00 UTC.
+
+    NOTE: observed 2026-05-01 — anthropic console showed "Resets Jun 1" for
+    an enterprise spend-limit cycle, so we assume calendar-month resets on
+    the 1st at midnight UTC. the usage API does not expose cycle dates
+    directly. if a different anchor (e.g. subscription anniversary) is
+    observed in the wild, this should be revisited.
+    """
+    if now.month == 12:
+        return datetime(now.year + 1, 1, 1, tzinfo=timezone.utc)
+    return datetime(now.year, now.month + 1, 1, tzinfo=timezone.utc)
+
+
+def _synthesize_monthly_credits_window(extra_usage: ExtraUsage) -> UsageWindow | None:
+    """build a UsageWindow from extra_usage, if enabled and reporting utilization.
+
+    enterprise plans return all standard rate-limit windows as null; their real
+    budget signal lives in extra_usage (monthly spend cap). exposing it as a
+    regular UsageWindow lets config.window, speech, status, and history all
+    work unchanged.
+    """
+    if not extra_usage.is_enabled:
+        return None
+    if extra_usage.utilization is None:
+        return None
+    return UsageWindow(
+        name="monthly_credits",
+        utilization=extra_usage.utilization,
+        resets_at=_next_month_first_utc(datetime.now(timezone.utc)),
+    )
+
+
 def _parse_extra_usage(data: dict) -> ExtraUsage | None:
     """parse the extra_usage object from the usage response, if present."""
     raw = data.get("extra_usage")
@@ -242,14 +297,23 @@ def fetch_usage(token: str) -> UsageData:
             )
         )
 
+    extra_usage = _parse_extra_usage(data)
+
+    # synthesize a monthly_credits window from extra_usage so the rest of the
+    # pipeline can treat enterprise spend-limit cycles like any other window.
+    if extra_usage is not None:
+        synthetic = _synthesize_monthly_credits_window(extra_usage)
+        if synthetic is not None:
+            windows.append(synthetic)
+
     if not windows:
         raise RuntimeError("no usage windows returned from API")
 
     most_constrained = max(windows, key=lambda w: w.utilization)
-    extra_usage = _parse_extra_usage(data)
 
     return UsageData(
         windows=windows,
         most_constrained=most_constrained,
         extra_usage=extra_usage,
+        raw_response=data,
     )

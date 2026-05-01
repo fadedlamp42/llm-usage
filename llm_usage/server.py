@@ -163,11 +163,21 @@ def _build_status_from_db(
         for row in account_rows
     ]
 
+    # resolve tracked window dynamically — prefers configured window when
+    # present in latest poll, falls back to most-constrained. mirrors the
+    # daemon's own resolution so credit-based plans (where the configured
+    # rate-limit window doesn't exist) still get a sensible tracked window.
+    window_names = {w["name"] for w in windows}
+    if tracked_window != "most_constrained" and tracked_window in window_names:
+        effective_tracked = tracked_window
+    else:
+        effective_tracked = most_constrained_name
+
     return {
         "provider": provider_name,
         "account_email": account_email,
         "auth_expired": False,
-        "tracked_window": tracked_window,
+        "tracked_window": effective_tracked,
         "poll_interval": poll_interval,
         "polled_at": latest_polled_at,
         "windows": windows,
@@ -300,6 +310,10 @@ def _render_bar_status(
 
         return error_title() + "\n" + error_dropdown(status["error"])
 
+    # use the dynamically-resolved tracked window from the response so credit
+    # plans show monthly_credits instead of a missing five_hour
+    effective_tracked = status.get("tracked_window") or tracked_window
+
     # find the tracked window's burn rate
     minutes_until_limit = None
     tracked_utilization = None
@@ -307,7 +321,7 @@ def _render_bar_status(
     projected_remaining = None
 
     for window in status["windows"]:
-        if window["name"] == tracked_window:
+        if window["name"] == effective_tracked:
             tracked_utilization = window["utilization"]
             tracked_resets_at = window["resets_at"]
             burn = window.get("burn_rate")

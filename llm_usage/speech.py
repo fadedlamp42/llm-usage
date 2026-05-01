@@ -93,12 +93,21 @@ def _format_minutes_until_limit(minutes: float) -> str:
 def format_voice_status(usage: UsageData) -> str:
     """format a thorough spoken status update for cute-say.
 
-    includes: hourly remaining (for verifying blink readouts), weekly remaining,
-    per-model breakdown (opus/sonnet), and reset times for all windows.
+    rate-limit plans: hourly remaining, weekly remaining, per-model breakdown.
+    credit-based plans: monthly dollars remaining and reset time.
     plain delivery, no paralinguistic tags.
     """
     windows_by_name = {w.name: w for w in usage.windows}
 
+    if "five_hour" in windows_by_name or "seven_day" in windows_by_name:
+        return _format_voice_status_rate_limit(windows_by_name)
+    if "monthly_credits" in windows_by_name:
+        return _format_voice_status_credits(usage, windows_by_name["monthly_credits"])
+    return ""
+
+
+def _format_voice_status_rate_limit(windows_by_name: dict) -> str:
+    """rate-limit plan readout: hourly + weekly + per-model breakdown."""
     five_hour = windows_by_name.get("five_hour")
     seven_day = windows_by_name.get("seven_day")
     opus = windows_by_name.get("seven_day_opus")
@@ -137,22 +146,60 @@ def format_voice_status(usage: UsageData) -> str:
     return ". ".join(parts)
 
 
+def _format_voice_status_credits(usage: UsageData, monthly: object) -> str:
+    """credit-based plan readout: monthly dollars remaining and reset time."""
+    extra = usage.extra_usage
+    if extra is None or not extra.monthly_limit:
+        return ""
+
+    used = int(extra.used_credits or 0)
+    limit = int(extra.monthly_limit)
+    remaining = max(0, limit - used)
+    reset = _format_relative_time(monthly.resets_at)
+
+    fragment = "monthly has %d dollars left of %d" % (remaining, limit)
+    if reset:
+        fragment += ", resets %s" % reset
+    return fragment
+
+
 WEEKLY_WARNING_THRESHOLD = 90.0
 
 
 def speak_hourly_status(usage: UsageData, burn_rate: BurnRate) -> None:
     """fire-and-forget: hourly status with remaining and projected utilization.
 
-    format: remaining % first, reset time, then projected utilization
-    personalized with the account name. appends a weekly warning
-    when the seven_day window is at or above 90%.
+    dispatches by plan type:
+      - rate-limit plans: five_hour-based readout with weekly warning
+      - credit-based plans: monthly_credits dollar readout with pace projection
     """
     windows_by_name = {w.name: w for w in usage.windows}
-    five_hour = windows_by_name.get("five_hour")
-    if not five_hour:
-        logger.warning("no five_hour window available for hourly readout")
+
+    if "five_hour" in windows_by_name:
+        text = _build_hourly_rate_limit_text(usage, burn_rate, windows_by_name)
+    elif "monthly_credits" in windows_by_name:
+        text = _build_hourly_credits_text(usage, burn_rate, windows_by_name)
+    else:
+        logger.warning(
+            "no trackable window for hourly readout",
+            available=list(windows_by_name.keys()),
+        )
         return
 
+    if not text:
+        return
+
+    logger.info("hourly readout", text=text)
+    _speak_kokoro(text)
+
+
+def _build_hourly_rate_limit_text(
+    usage: UsageData,
+    burn_rate: BurnRate,
+    windows_by_name: dict,
+) -> str:
+    """rate-limit plan: remaining % first, reset time, then projected utilization."""
+    five_hour = windows_by_name["five_hour"]
     hr_left = int(100 - five_hour.utilization)
     reset = _format_relative_time(five_hour.resets_at)
     possessive = _email_to_possessive_name(usage.account_email)
@@ -184,9 +231,43 @@ def speak_hourly_status(usage: UsageData, burn_rate: BurnRate) -> None:
         weekly_used = int(seven_day.utilization)
         parts.append("weekly at %d too" % weekly_used)
 
-    text = ". ".join(parts)
-    logger.info("hourly readout", text=text)
-    _speak_kokoro(text)
+    return ". ".join(parts)
+
+
+def _build_hourly_credits_text(
+    usage: UsageData,
+    burn_rate: BurnRate,
+    windows_by_name: dict,
+) -> str:
+    """credit-based plan: dollars remaining, reset time, monthly pace projection."""
+    monthly = windows_by_name["monthly_credits"]
+    extra = usage.extra_usage
+    if extra is None or not extra.monthly_limit:
+        return ""
+
+    used = int(extra.used_credits or 0)
+    limit = int(extra.monthly_limit)
+    remaining = max(0, limit - used)
+    reset = _format_relative_time(monthly.resets_at)
+
+    parts = ["%d dollars remaining of %d" % (remaining, limit)]
+    if reset:
+        parts.append("resets %s" % reset)
+
+    # pace projection — convert burn rate's % projection back to dollars
+    projected_remaining_pct = burn_rate.projected_remaining_at_reset
+    if projected_remaining_pct is not None:
+        projected_used_pct = 100 - projected_remaining_pct
+        projected_dollars = int(limit * projected_used_pct / 100)
+        if projected_dollars <= limit:
+            parts.append("on pace for %d this month" % projected_dollars)
+        else:
+            overage = projected_dollars - limit
+            parts.append(
+                "on pace for %(p)d, %(o)d over budget" % {"p": projected_dollars, "o": overage}
+            )
+
+    return ". ".join(parts)
 
 
 def speak_full_status(usage: UsageData) -> None:

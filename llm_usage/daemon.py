@@ -45,7 +45,7 @@ from llm_usage.storage import (
     initialize_database,
     record_poll,
 )
-from llm_usage.usage import AuthExpiredError, UsageData
+from llm_usage.usage import AuthExpiredError, UsageData, resolve_tracked_window
 
 if TYPE_CHECKING:
     from llm_usage.config import Config
@@ -346,18 +346,10 @@ def run_daemon(
                 except Exception as error:
                     logger.warning("failed to record poll to database", error=str(error))
 
-            if config.window == "most_constrained":
-                tracked = usage.most_constrained
-            else:
-                matched = [w for w in usage.windows if w.name == config.window]
-                if not matched:
-                    logger.warning(
-                        "window not found in API response, falling back to most constrained",
-                        window=config.window,
-                    )
-                    tracked = usage.most_constrained
-                else:
-                    tracked = matched[0]
+            # resolve tracked window per-fetch — prefers configured window, falls
+            # back to most-constrained when missing (e.g. credit-based plans where
+            # standard windows aren't returned and monthly_credits stands in).
+            tracked = resolve_tracked_window(usage.windows, config.window)
 
             remaining = 100.0 - tracked.utilization
 
